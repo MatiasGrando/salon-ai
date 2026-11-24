@@ -322,6 +322,7 @@ function publicUser(user: {
   professional?: { id: string; name: string } | null
   canCreateAppointments?: boolean
   canEditAppointments?: boolean
+  canCompleteAppointments?: boolean
   canCancelAppointments?: boolean
   canManageScheduleBlocks?: boolean
   staffProfile?: string
@@ -366,6 +367,7 @@ function publicUser(user: {
     agendaScope: user.role === 'STAFF' && user.agendaScope === 'ALL' ? 'ALL' : 'OWN',
     canCreateAppointments: user.role === 'STAFF' ? user.canCreateAppointments !== false : true,
     canEditAppointments: user.role === 'STAFF' ? user.canEditAppointments !== false : true,
+    canCompleteAppointments: user.role === 'STAFF' ? user.canCompleteAppointments === true : true,
     canCancelAppointments: user.role === 'STAFF' ? user.canCancelAppointments !== false : true,
     canManageScheduleBlocks: user.role === 'STAFF' ? user.canManageScheduleBlocks !== false : true,
     canForceAppointments: user.role === 'STAFF' ? user.canForceAppointments === true : true,

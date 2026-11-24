@@ -1,3 +1,5 @@
+import { crmDrawerStyles, crmDrawerScript } from './drawer.js'
+
 export const cashRegisterStyles = `
     .appointment-service-correction { width: 100%; min-width: 0; padding: 1em; border: 1px solid #b8c4d4; border-radius: .75em; background: #f8fafc; color: #334155; }
     .appointment-service-correction[hidden], .appointment-service-correction [hidden] { display: none; }
@@ -34,7 +36,7 @@ export const cashRegisterStyles = `
     .cash-settlement-filter[hidden] { display: none; }
     .cash-settlement-filter select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); }
     .cash-settlement-filter select:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
-    .cash-shell { width: min(1260px, 100%); min-width: 0; margin: 0 auto; padding: 28px; }
+    .cash-shell { --cash-control-height: 40px; --cash-icon-size: 18px; --cash-section-title-size: 18px; width: min(1380px, 100%); min-width: 0; margin: 0 auto; padding: 28px; }
     .cash-shell :is(section, article, label, form) { min-width: 0; }
     .cash-shell :is(input, select, textarea) { min-width: 0; max-width: 100%; }
     .cash-shell :is(label, strong, p, small) { overflow-wrap: anywhere; }
@@ -73,11 +75,6 @@ export const cashRegisterStyles = `
     .cash-session-history > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 50px; padding: 0 16px; cursor: pointer; font-weight: 800; list-style: none; }
     .cash-session-history > summary::-webkit-details-marker { display: none; }
     .cash-session-history > summary span { color: var(--muted); font-weight: 600; }
-    .cash-session-list { display: grid; border-top: 1px solid var(--line); }
-    .cash-session-row { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(3, minmax(110px, auto)); gap: 14px; align-items: center; padding: 13px 16px; border-bottom: 1px solid var(--line); }
-    .cash-session-row:last-child { border-bottom: 0; }
-    .cash-session-row > div { display: grid; gap: 3px; }
-    .cash-session-row span, .cash-session-row small { color: var(--muted); }
     .cash-session-difference.positive { color: #047857; }
     .cash-session-difference.negative { color: var(--danger); }
     .cash-panel { overflow: hidden; }
@@ -100,17 +97,17 @@ export const cashRegisterStyles = `
     .cash-category-row.inactive strong { color: var(--muted); text-decoration: line-through; }
     .cash-category-editor { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); display: grid; gap: 12px; }
     .cash-category-editor[hidden] { display: none; }
-    .cash-entry-list { display: grid; }
-    .cash-entry { display: grid; grid-template-columns: minmax(180px, 1.2fr) 120px 120px 140px auto auto; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
-    .cash-entry:last-child { border-bottom: 0; }
-    .cash-entry-main { display: grid; min-width: 0; gap: 4px; }
-    .cash-entry-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; min-width: 0; }
-    .cash-entry-actions button { white-space: normal; }
-    .cash-entry-main span, .cash-entry small { color: var(--muted); }
+    .cash-entry-actions { display: flex; flex-wrap: wrap; gap: 6px; }
     .cash-entry-amount { font-weight: 900; text-align: right; }
     .cash-entry-amount.outflow { color: var(--danger); }
     .cash-entry-amount.inflow { color: #047857; }
-    .cash-load-more { width: 100%; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 14px; background: var(--surface-soft); }
+    .cash-shell .cash-entry-pagination { position: relative; display: flex; justify-content: center; margin: 0 14px 8px; padding: 0; border-top: 0; }
+    .cash-shell .cash-entry-pagination[hidden] { display: none; }
+    .cash-entry-pagination > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .cash-entry-pagination > button:not([hidden]) { display: block; width: 100%; min-height: 44px; padding: 12px; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; background: transparent; color: #1859ce; font-size: 13px; font-weight: 600; text-align: center; box-shadow: none; }
+    .cash-entry-pagination > button:not(:disabled):hover { background: #f3f7ff; }
+    .cash-entry-pagination > button:focus-visible { outline: 2px solid #2267ee; outline-offset: -2px; }
+    #cash-entry-list > .cash-table-scroll { padding-bottom: 0; }
     .cash-inline-state { padding: 34px; text-align: center; color: var(--muted); }
     .cash-dialog-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 18px; background: rgba(17,19,24,.52); }
     .cash-dialog-backdrop[hidden] { display: none; }
@@ -267,10 +264,6 @@ export const cashRegisterStyles = `
     .cash-period-expenses .cash-section-head, .cash-period-expense-filters, .cash-pagination { padding: 16px; }
     .cash-period-expense-filters { display: grid; grid-template-columns: repeat(3, minmax(130px, .8fr)) minmax(200px, 1.2fr) auto; gap: 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
     .cash-period-expense-list { min-height: 120px; }
-    .cash-period-expense-row { display: grid; grid-template-columns: minmax(180px, 1.5fr) minmax(120px, .8fr) 150px 130px; gap: 12px; align-items: center; padding: 13px 16px; border-bottom: 1px solid var(--line); }
-    .cash-period-expense-row small { color: var(--muted); }
-    .cash-period-expense-row strong:last-child { text-align: right; }
-    .cash-period-expense-row.reversal strong:last-child { color: #047857; }
     .cash-pagination { border-top: 1px solid var(--line); }
     .cash-pagination-controls { display: flex; gap: 8px; align-items: center; }
     @media (max-width: 900px) {
@@ -279,12 +272,6 @@ export const cashRegisterStyles = `
       .cash-period-summary-grid { grid-template-columns: 1fr 1fr; }
       .cash-period-highlight { grid-column: auto; }
       .cash-period-expense-filters { grid-template-columns: 1fr 1fr; }
-      .cash-period-expense-row { grid-template-columns: minmax(160px, 1fr) 120px 120px; }
-      .cash-period-expense-row > :nth-child(3) { display: none; }
-      .cash-entry { grid-template-columns: 1fr auto; }
-      .cash-session-row { grid-template-columns: 1fr 1fr; }
-      .cash-entry > :not(.cash-entry-main):not(.cash-entry-amount):not(.cash-entry-action) { display: none; }
-      .cash-entry-action { grid-column: 1 / -1; justify-self:stretch; }
     }
     @media (max-width: 767px) {
       .app[data-section="cash"], .app[data-section="settlements"] { display: block; }
@@ -296,7 +283,7 @@ export const cashRegisterStyles = `
       .cash-header-actions .secondary { flex: 1; }
       .cash-summary-grid, .cash-dialog-grid, .appointment-finance-summary, .appointment-finance-row, .appointment-total-reference, .appointment-total-adjust-grid { grid-template-columns: 1fr; }
       .appointment-total-adjust-actions > button { flex: 1 1 120px; }
-      .cash-session-reconciliation, .cash-session-row, .cash-product-layout { grid-template-columns: 1fr; }
+      .cash-session-reconciliation, .cash-product-layout { grid-template-columns: 1fr; }
       .cash-sale-add-row, .appointment-product-add-row, .cash-sale-item, .appointment-product-item, .cash-product-row { grid-template-columns: 1fr; }
       .cash-operation-category-head { align-items: stretch; flex-direction: column; }
       .appointment-create-actions { flex-direction: column; }
@@ -307,8 +294,6 @@ export const cashRegisterStyles = `
       .cash-view-switch { width: 100%; }
       .cash-period-dates, .cash-period-movements, .cash-period-expense-filters, .cash-method-totals { grid-template-columns: 1fr; }
       .cash-period-highlight { grid-column: auto; }
-      .cash-period-expense-row { grid-template-columns: 1fr auto; }
-      .cash-period-expense-row > :nth-child(2), .cash-period-expense-row > :nth-child(3) { display: none; }
       .cash-category-row { grid-template-columns: 1fr auto; }
       .cash-category-row > :nth-child(2), .cash-category-row > :nth-child(3) { display: none; }
     }
@@ -357,7 +342,20 @@ export const cashRegisterStyles = `
     .cash-today-table { width:100%; min-width:440px; border-collapse:collapse; text-align:left; }
     .cash-today-table th, .cash-today-table td { padding:12px; border-bottom:1px solid #e2e8f0; }
     .cash-today-table th:last-child, .cash-today-table td:last-child { text-align:right; }
-    .cash-professional-period { padding:14px 16px; display:grid; gap:12px; }
+    .cash-professional-period { padding:14px 16px; display:grid; grid-template-columns:minmax(190px,1fr) minmax(0,1.6fr); gap:12px 18px; align-items:end; }
+    .cash-professional-period > .cash-settlement-filter { display:grid; gap:6px; padding:0; background:none; border:0; font-size:12px; font-weight:700; }
+    .cash-professional-period > .cash-settlement-filter[hidden] { display:none; }
+    .cash-professional-period-control { display:grid; gap:6px; min-width:0; }
+    .cash-professional-period-control > span { color:var(--text); font-size:12px; font-weight:700; }
+    .cash-professional-period .cash-period-presets { display:flex; flex-wrap:wrap; gap:3px; margin:0; padding:3px; border:1px solid var(--line); border-radius:9px; background:#f7f9fc; }
+    .cash-professional-period .cash-period-preset { display:inline-flex; flex:1; align-items:center; justify-content:center; gap:6px; min-height:34px; padding:7px 10px; border:0; border-radius:6px; background:transparent; color:#475569; font-size:13px; font-weight:600; }
+    .cash-professional-period .cash-period-preset.active { background:#e8f1ff; color:#1859ce; box-shadow:none; }
+    .cash-professional-select-wrap { position:relative; display:block; min-width:0; }
+    .cash-professional-select-wrap > .cash-icon { position:absolute; left:12px; top:50%; transform:translateY(-50%); width:18px; height:18px; color:#64748b; pointer-events:none; }
+    .cash-professional-select-wrap select { min-height:40px; padding-left:38px; font-size:13px; }
+    .cash-professional-period > .cash-professional-period-dates, .cash-professional-period > .cash-feedback { grid-column:1 / -1; }
+    .cash-professional-period-dates[hidden] { display:none; }
+    .cash-professional-period > .cash-feedback:empty { display:none; }
     .cash-professional-period-dates { display:grid; grid-template-columns:minmax(150px,210px) minmax(150px,210px) auto minmax(190px,1fr); gap:10px; align-items:end; }
     .cash-professional-period-dates label { display:grid; gap:5px; color:#475569; font-size:12px; font-weight:700; }
     .cash-professional-period-dates input, .cash-period-dates input { width:100%; min-width:0; }
@@ -380,7 +378,7 @@ export const cashRegisterStyles = `
     .cash-professional-summary-head > *, .cash-professional-summary-row > * { padding:11px 10px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; }
     .cash-professional-summary-row > :not(:last-child), .cash-professional-summary-head > :not(:last-child) { border-right:1px solid #eef2f7; }
     .cash-professional-toggle { min-height:42px; padding:0; color:#1e3a8a; background:transparent; font-size:17px; font-weight:900; }
-    .cash-professional-current-balance { border-left:2px solid #60a5fa !important; justify-content:center; flex-direction:column; background:#eff6ff; color:#1d4ed8; font-size:20px; line-height:1.1; font-weight:900; text-align:center; }
+    .cash-professional-current-balance { color:#1d4ed8; font-weight:800; font-variant-numeric:tabular-nums; }
     .cash-professional-current-balance small { margin-top:3px; color:#64748b; font-size:9px; font-weight:650; }
     .cash-professional-summary-head .cash-professional-current-balance { font-size:12px; }
     .cash-professional-current-balance.negative { color:#dc2626; background:#fff1f2; }
@@ -411,86 +409,339 @@ export const cashRegisterStyles = `
     @media (max-width:1000px) { .cash-professional-payment-form { grid-template-columns:repeat(2, minmax(0,1fr)); } .cash-professional-period-dates { grid-template-columns:repeat(2,minmax(0,1fr)); } .cash-professional-observation { grid-column:auto; } .cash-professional-period-selected { border-left:0; padding-left:0; } }
     @media (max-width:760px) { .cash-professional-row { min-width:650px; } .cash-professional-summary-head, .cash-professional-summary-row { min-width:900px; } }
     @media (max-width:560px) { .cash-professional-payment-form, .cash-professional-period-dates { grid-template-columns:minmax(0,1fr); } }
+
+    .cash-professional-summary-table { width:100%; min-width:900px; border-collapse:separate; border-spacing:0; text-align:left; font-size:13px; }
+    .cash-professional-summary-table .cash-professional-summary-head { display:table-row; }
+    .cash-professional-summary-table .cash-professional-summary-row { display:table-row; }
+    .cash-professional-summary-table :is(th,td) { padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:middle; }
+    .cash-professional-summary-table thead th { color:#394864; font-size:12px; font-weight:700; background:#edf1f8; }
+    .cash-professional-summary-table thead th:first-child, .cash-professional-movements-table th:first-child { border-radius:8px 0 0 8px; }
+    .cash-professional-summary-table thead th:last-child, .cash-professional-movements-table th:last-child { border-radius:0 8px 8px 0; }
+    .cash-professional-summary-table thead small { display:block; margin-top:3px; font-size:10px; font-weight:400; }
+    .cash-professional-summary-table .cash-professional-summary-row > *, .cash-professional-summary-table .cash-professional-summary-head > * { display:table-cell; border-right:0; }
+    .cash-professional-summary-table .cash-professional-summary-row:hover { background:#f8faff; }
+    .cash-professional-summary-table .cash-professional-current-balance { text-align:right; white-space:nowrap; font-size:14px; background:none; border-left:0 !important; }
+    .cash-professional-summary-table .cash-professional-name { font-weight:700; }
+    .cash-professional-identity { display:flex; align-items:center; gap:10px; min-width:0; }
+    .cash-professional-avatar { display:inline-grid; place-items:center; flex:none; width:32px; height:32px; border-radius:50%; background:#e6efff; color:#1859ce; font-size:14px; font-weight:700; }
+    .cash-professional-avatar[data-tone="1"] { background:#eee7ff; color:#6943b9; }
+    .cash-professional-avatar[data-tone="2"] { background:#fff0d6; color:#96620c; }
+    .cash-professional-avatar[data-tone="3"] { background:#def6e9; color:#087546; }
+    .cash-professional-identity > span:last-child { min-width:0; }
+    .cash-professional-summary-table :is(th,td):nth-child(n+3):not(:last-child) { text-align:right; font-variant-numeric:tabular-nums; }
+    .cash-professional-summary-table .cash-professional-name small { margin-left:6px; }
+    .cash-professional-summary-table .cash-professional-period-balance { color:var(--text); font-weight:600; }
+    .cash-professional-summary-table td:last-child { text-align:right; }
+    .cash-shell .cash-professional-summary-table .cash-professional-pay { min-height:34px; padding:6px 10px; font-size:12px; white-space:nowrap; }
+    .cash-professional-summary-table .cash-professional-toggle { width:26px; min-height:30px; border:0; font-size:16px; }
+    .cash-professional-summary-table .cash-professional-services-cell { padding:0; }
+    .cash-professional-movements-table { width:100%; min-width:760px; border-collapse:separate; border-spacing:0; text-align:left; font-size:13px; }
+    .cash-professional-movements-table :is(th,td) { padding:10px; border-bottom:1px solid var(--line); }
+    .cash-professional-movements-table th { background:#edf1f8; color:#394864; font-size:12px; }
+    .cash-professional-movements-table th:last-child, .cash-professional-movements-table td:last-child { text-align:right; white-space:nowrap; }
+    .cash-professional-movements-table .negative { color:#b4233c; }
+    .cash-professional-movements-table .cash-settlement-credit { color:#047857; }
+    .cash-professional-former { margin-top:12px; border-top:1px solid var(--line); }
+    .cash-professional-former > summary { padding:14px 10px; color:#475569; cursor:pointer; font-size:13px; font-weight:600; }
+    .cash-professional-former .cash-professional-group-heading { display:none; }
+    .cash-professional-heading-actions { display:flex; flex-wrap:wrap; gap:8px; }
+    .cash-professional-summary-title { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin:0 0 14px; }
+    .cash-professional-summary-title h3, .cash-professional-heading h3, .cash-professional-movements h3 { margin:0; font-size:var(--cash-section-title-size); }
+    .cash-professional-count { padding:5px 10px; border-radius:999px; background:#edf1f8; color:#394864; font-size:12px; font-weight:650; }
+    .cash-professional-movements .cash-section-head { padding:0 0 14px; }
+    .cash-professional-movements .cash-section-head p { margin:4px 0 0; color:var(--muted); }
+    .cash-settlement-type { display:inline-flex; align-items:center; gap:5px; padding:4px 7px; border-radius:7px; background:#edf1f8; color:#475569; white-space:nowrap; font-size:12px; }
+    .cash-settlement-type .cash-icon { width:14px; height:14px; }
+    .cash-settlement-type.earning { background:#e5f7ed; color:#087546; }
+    .cash-settlement-type.payment { background:#e8f1ff; color:#1859ce; }
+    .cash-settlement-type.advance { background:#fff2d9; color:#8d610d; }
+    .cash-settlement-type.reversal { background:#fff0f2; color:#a4384d; }
+    .cash-visually-hidden { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+    @media (max-width:700px) { .cash-professional-period { grid-template-columns:minmax(0,1fr); } }
+    @media (max-width:560px) {
+      .cash-professional-period .cash-period-presets { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .cash-professional-period .cash-period-preset { min-width:0; min-height:44px; padding:8px 6px; white-space:normal; }
+      .cash-professional-heading-actions { display:grid; grid-template-columns:minmax(0,1fr); width:100%; }
+      .cash-professional-heading-actions > button { width:100%; white-space:normal; }
+    }
+    .cash-professional-drawer { padding:0; gap:0; }
+    .cash-professional-drawer .cash-professional-payment-form { display:flex; flex-direction:column; align-items:stretch; flex:1; margin:0; min-height:0; overflow:hidden; }
+    .cash-professional-drawer .crm-drawer-body { display:flex; flex-direction:column; gap:16px; }
+    .cash-professional-drawer label { display:grid; gap:7px; font-size:13px; font-weight:650; }
+    .cash-professional-drawer :is(input,select,textarea) { width:100%; min-width:0; box-sizing:border-box; min-height:42px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; color:var(--text); font:inherit; }
+    .cash-professional-drawer textarea { min-height:78px; resize:vertical; }
+    .cash-professional-payment-type { display:grid; grid-template-columns:1fr 1fr; padding:3px; gap:3px; border:1px solid var(--line); border-radius:9px; background:#f7f9fc; }
+    .cash-professional-payment-type button { min-height:38px; border:0; border-radius:6px; background:transparent; color:#475569; font-weight:650; }
+    .cash-professional-payment-type button[aria-pressed="true"] { background:#e8f0ff; color:#1859ce; }
+    .cash-professional-drawer .cash-professional-amount input { min-height:56px; font-size:25px; font-weight:750; font-variant-numeric:tabular-nums; }
+    .cash-professional-payment-balance { margin:0; padding:12px; border-radius:8px; background:#f5f8fd; color:#475569; font-size:13px; display:flex; justify-content:space-between; gap:10px; }
+    .cash-professional-payment-balance strong { color:#1859ce; font-size:16px; }
+    .cash-professional-payment-context { margin:0; padding:12px; border:1px solid #dbe7fa; border-radius:8px; color:#475569; background:#f7faff; font-size:12px; line-height:1.5; }
+    .cash-professional-drawer .cash-feedback:empty { display:none; }
+    .cash-professional-drawer .crm-drawer-footer button { width:100%; min-height:44px; }
+    @media (max-width:760px) { .cash-professional-period { grid-template-columns:minmax(0,1fr); } .cash-professional-period > .cash-period-presets { justify-content:flex-start; } }
+
+    .cash-register-view { background: #f3f6fc; }
+    .cash-icon { display: block; width: 1.15em; height: 1.15em; flex: none; }
+    .cash-day-heading, .cash-day-labeled-icon { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .cash-day-only-icon { display: inline-grid; flex: none; }
+    .cash-shell .cash-header h2 { font-size: clamp(1.65rem, 3vw, 2.15rem); line-height: 1.1; }
+    .cash-shell :is(.cash-view-switch, .cash-session-strip, .cash-toolbar, .cash-session-history) { box-shadow: 0 2px 5px #1528480a; }
+    .cash-shell .cash-view-switch { background: var(--surface); }
+    .cash-shell .cash-view-tab { display: inline-flex; align-items: center; gap: 8px; }
+    .cash-shell .cash-view-tab[hidden] { display: none; }
+    .cash-shell .cash-view-tab .cash-icon { width: var(--cash-icon-size); height: var(--cash-icon-size); }
+    .cash-shell .cash-view-tab.active { background: #e8f1ff; color: #1859ce; box-shadow: inset 0 -3px #2267ee; }
+    .cash-shell .cash-status { display: inline-flex; align-items: center; gap: 7px; }
+    .cash-shell .cash-status.open { background: #dcf8ea; color: #08603c; }
+    .cash-shell .cash-status::before, .cash-session-badge::before { content: ''; width: 7px; height: 7px; flex: none; border-radius: 50%; background: currentColor; }
+    .cash-day-icon { display: inline-grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: 11px; background: var(--cash-icon-bg, #e4efff); color: var(--cash-icon-color, #1859ce); font-size: 17px; }
+    .cash-shell .cash-day-heading .cash-day-icon { width: 54px; height: 54px; border-radius: 16px; font-size: 23px; }
+    .cash-shell :is(button.primary, button.secondary):not([hidden]) { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--cash-control-height); font-size: 13px; }
+    .cash-shell :is(button.primary, button.secondary) .cash-icon { width: 17px; height: 17px; }
+    .cash-dashboard :is(.cash-actions button:not([hidden]), .cash-entry-actions button), .cash-shell #cash-category-shortcut:not([hidden]) { display: inline-flex; justify-content: center; align-items: center; gap: 7px; }
+    @media (max-width: 560px) { .cash-shell { --cash-control-height: 44px; } }
+    .cash-dashboard .cash-session-strip > .cash-actions { border-left: 1px solid #e1e8f2; padding-left: 18px; }
+    .cash-dashboard .cash-session-strip .cash-actions > button { min-height: 40px; padding: 9px 13px; gap: 8px; border-radius: 9px; font-size: 13px; line-height: 1.25; font-weight: 600; border: 1px solid #d8e1ef; background: linear-gradient(#fff, #f5f7fc); color: #18243c; box-shadow: 0 1px 2px #172b4d0d, inset 0 1px 0 #ffffffc9; }
+    .cash-dashboard .cash-session-strip .cash-actions > button.primary { border-color: #1870ff; background: linear-gradient(180deg, #187aff, #0961f5); color: #fff; box-shadow: 0 2px 4px #1265ea24, inset 0 1px 0 #ffffff38; }
+    .cash-dashboard .cash-session-strip .cash-actions > button.danger { border-color: #ffc0ca; background: linear-gradient(#fff6f7, #ffe9ed); color: #d71f39; box-shadow: 0 1px 2px #b91c3b0a; }
+    .cash-dashboard .cash-session-strip .cash-actions > button:not(:disabled):hover { filter: brightness(.975); border-color: #aebed5; }
+    .cash-dashboard .cash-session-strip .cash-actions > button.primary:not(:disabled):hover { border-color: #0954d6; }
+    .cash-dashboard .cash-session-strip .cash-actions > button.danger:not(:disabled):hover { border-color: #ef8f9f; }
+    .cash-dashboard .cash-session-strip .cash-actions > button:focus-visible { outline: 3px solid #9fc2ff; outline-offset: 2px; }
+    .cash-dashboard .cash-session-strip .cash-icon { width: 17px; height: 17px; }
+    @media (max-width: 1100px) { .cash-dashboard .cash-session-strip > .cash-actions { border-left: 0; padding-left: 0; } }
+    @media (max-width: 560px) { .cash-dashboard .cash-session-strip .cash-actions > button { min-height: 44px; } }
+    .cash-dashboard .cash-toolbar select { max-width: 420px; }
+    .cash-dashboard .cash-summary-card { align-content: start; gap: 8px; border-color: var(--cash-card-border); background: linear-gradient(145deg, var(--surface), var(--cash-card-tint)); }
+    .cash-day-card--collected { --cash-card-border: #cfe2fb; --cash-card-tint: #ecf5ff; }
+    .cash-day-card--outgoing { --cash-card-border: #f2dce3; --cash-card-tint: #fff1f4; --cash-icon-bg: #ffe4e9; --cash-icon-color: #b92447; }
+    .cash-day-card--total { --cash-card-border: #cfe9e1; --cash-card-tint: #eafaf5; --cash-icon-bg: #daf6e8; --cash-icon-color: #057245; }
+    .cash-day-card--expected { --cash-card-border: #e2dcf7; --cash-card-tint: #f4f0ff; --cash-icon-bg: #ebe3ff; --cash-icon-color: #5c35c2; }
+    .cash-day-metric { display: flex; align-items: center; gap: 10px; min-height: 40px; font-size: 14px; }
+    .cash-day-metric .cash-day-icon { color: var(--cash-icon-color, #1859ce); }
+    .cash-dashboard .cash-summary-card > strong { font-size: clamp(1.65rem, 2.55vw, 2.2rem); line-height: 1.15; }
+    .cash-dashboard .cash-method-totals { grid-template-columns: repeat(auto-fit, minmax(min(100%, 72px), 1fr)); gap: 5px; }
+    @media (max-width: 380px) {
+      .cash-dashboard .cash-method-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    .cash-dashboard .cash-method-total { padding: 7px; border-color: #c7d4e55e; background: #ffffff9e; }
+    .cash-dashboard .cash-method-total span { font-size: 11px; }
+    .cash-dashboard .cash-method-total strong { font-size: 13px; }
+    .cash-dashboard :is(.cash-summary-card > strong, .cash-method-total strong, .cash-entry-amount, .cash-session-amount) { white-space: nowrap; overflow-wrap: normal; font-variant-numeric: tabular-nums; }
+    .cash-dashboard .cash-section-head { padding: 15px 16px; }
+    .cash-session-count, .cash-session-badge, .cash-entry-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; background: #edf1f8; color: #394864; font-size: 12px; font-weight: 700; }
+    .cash-session-badge.active { background: #dcf8ea; color: #08603c; }
+    .cash-dashboard .cash-filter-row { padding: 12px 14px; border-bottom: 0; }
+    .cash-dashboard .cash-filter-controls :is(select, input) { flex-basis: 132px; font-size: 13px; }
+    .cash-table-scroll { overflow-x: auto; overscroll-behavior-x: contain; max-width: 100%; padding: 0 14px 12px; }
+    .cash-table-scroll:focus-visible { outline: 2px solid #2267ee; outline-offset: -2px; }
+    .cash-day-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; text-align: left; font-size: 13px; }
+    .cash-sessions-table { min-width: 630px; }
+    .cash-movements-table { min-width: 875px; }
+    .cash-day-table :is(th, td) { padding: 10px; }
+    .cash-day-table thead th { background: #edf1f8; color: #394864; font-size: 12px; }
+    .cash-day-table thead th:first-child { border-radius: 8px 0 0 8px; }
+    .cash-day-table thead th:last-child { border-radius: 0 8px 8px 0; }
+    .cash-day-table tbody :is(th, td) { border-bottom: 1px solid var(--line); }
+    .cash-day-table tbody tr:last-child :is(th, td) { border-bottom: 0; }
+    .cash-day-table tbody tr:hover { background: #f6f9ff; }
+    .cash-sessions-table th:first-child { width: 36%; }
+    .cash-movements-table th:first-child { width: 28%; }
+    .cash-movements-table th:nth-child(3) { width: 13%; }
+    .cash-movements-table th:nth-child(5) { width: 112px; text-align: right; }
+    .cash-movements-table th:last-child { width: 276px; }
+    .cash-day-table .cash-day-labeled-icon > div { display: grid; gap: 3px; min-width: 0; }
+    .cash-day-table small { color: var(--muted); font-weight: 400; }
+    .cash-day-table .cash-day-icon { width: 32px; height: 32px; border-radius: 8px; font-size: 14px; }
+    .cash-entry .cash-day-icon.inflow { --cash-icon-bg: #def7e8; --cash-icon-color: #057245; }
+    .cash-entry .cash-day-icon.outflow { --cash-icon-bg: #ffe4e9; --cash-icon-color: #b92447; }
+    .cash-entry-chip.origin { background: #e4efff; color: #234f99; }
+    #cash-dashboard .cash-entry-actions button { padding: 6px 8px; min-height: 32px; font-size: 11px; white-space: nowrap; }
+    @media (min-width: 901px) and (max-width: 1050px) {
+      .cash-dashboard .cash-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    .cash-period-view, .cash-treasury-view { --cash-section-title-size: 18px; }
+    :is(.cash-period-view, .cash-treasury-view) h3 { margin: 0; font-size: var(--cash-section-title-size); }
+    :is(.cash-period-view, .cash-treasury-view) .cash-day-labeled-icon > div { min-width: 0; }
+    :is(.cash-period-view, .cash-treasury-view) .cash-summary-card { align-content: start; gap: 8px; border-color: var(--cash-card-border); background: var(--cash-card-tint); }
+    :is(.cash-period-view, .cash-treasury-view) .cash-summary-card > strong { font-size: clamp(1.65rem, 2.55vw, 2.2rem); line-height: 1.15; }
+    :is(.cash-period-view, .cash-treasury-view) .cash-summary-card small { font-size: 12px; line-height: 1.6; }
+    :is(.cash-period-view, .cash-treasury-view) :is(.cash-summary-card > strong, .cash-method-total strong, .cash-entry-amount, .cash-treasury-account-card > strong) { white-space: nowrap; overflow-wrap: normal; font-variant-numeric: tabular-nums; }
+    .cash-period-view .cash-method-totals { grid-template-columns: repeat(auto-fit, minmax(min(100%, 72px), 1fr)); gap: 5px; }
+    .cash-period-view .cash-method-total { padding: 7px; border-color: #c7d4e55e; background: #ffffff9e; }
+    .cash-period-view .cash-method-total span { font-size: 11px; }
+    .cash-period-view .cash-method-total strong { font-size: 13px; }
+    .cash-period-toolbar { gap: 16px; }
+    .cash-period-toolbar .cash-period-presets { width: fit-content; max-width: 100%; padding: 3px; gap: 3px; border: 1px solid var(--line); border-radius: 9px; background: #f7f9fc; }
+    .cash-period-toolbar .cash-period-preset { display: inline-flex; flex: 0 0 auto; white-space: nowrap; justify-content: center; align-items: center; gap: 6px; min-height: 34px; padding: 7px 13px; border: 0; border-radius: 6px; background: transparent; color: #475569; font-size: 13px; font-weight: 600; }
+    .cash-period-toolbar .cash-period-preset.active { background: #e8f1ff; color: #1859ce; }
+    .cash-period-dates, .cash-treasury-period-row { grid-template-columns: minmax(0, 210px) minmax(0, 210px) auto; justify-content: start; }
+    :is(.cash-period-dates, .cash-treasury-period-row, .cash-treasury-form, .cash-treasury-filter-row) label { display: grid; gap: 6px; min-width: 0; color: #475569; font-size: 12px; font-weight: 700; }
+    :is(.cash-period-view, .cash-treasury-view) :is(input, select) { width: 100%; min-height: var(--cash-control-height); padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: var(--text); font-size: 13px; }
+    :is(.cash-period-view, .cash-treasury-view) :is(input, select, button):focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+    :is(.cash-period-view, .cash-treasury-view) .cash-feedback:empty { display: none; }
+    .cash-period-other { display: grid; gap: 12px; padding: 16px; }
+    .cash-period-movements { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cash-period-movement { padding: 12px 14px; background: #f8faff; }
+    .cash-period-expense-filters { align-items: end; }
+    .cash-period-expense-filters > label { display: grid; gap: 6px; color: #475569; font-size: 12px; font-weight: 700; }
+    .cash-period-expenses .cash-section-head { padding-bottom: 14px; }
+    .cash-period-table { min-width: 850px; }
+    .cash-period-table th:first-child { width: 150px; }
+    .cash-period-table th:nth-child(2) { width: 31%; }
+    .cash-period-table th:nth-child(4) { width: 185px; }
+    .cash-period-table th:last-child { width: 120px; text-align: right; }
+    .cash-period-table .cash-day-icon.inflow { --cash-icon-bg: #def7e8; --cash-icon-color: #057245; }
+    .cash-period-table .cash-day-icon.outflow { --cash-icon-bg: #ffe4e9; --cash-icon-color: #b92447; }
+    .cash-treasury-account-head p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .cash-treasury-account-card { gap: 10px; background: #fff; }
+    .cash-treasury-account-card .cash-day-icon { color: var(--cash-icon-color, #1859ce); }
+    .cash-treasury-account-card .cash-day-labeled-icon > span:last-child { color: #394864; font-size: 13px; font-weight: 700; }
+    .cash-treasury-account-card > strong { font-size: 28px; line-height: 1.15; }
+    .cash-treasury-account-card small { font-size: 12px; }
+    .cash-account--cash { --cash-icon-bg: #def7e8; --cash-icon-color: #057245; }
+    .cash-treasury-operations { grid-template-columns: minmax(0, .8fr) minmax(0, 1.6fr); align-items: start; }
+    .cash-treasury-operation-head p, .cash-treasury-panel > small { font-size: 12px; line-height: 1.5; }
+    .cash-treasury-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #cash-treasury-transfer-form { grid-template-columns: minmax(0, 1fr); }
+    .cash-treasury-form > button { grid-column: 1 / -1; justify-self: start; }
+    .cash-treasury-expense-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; background: #f8faff; }
+    .cash-treasury-expense-fields .cash-inline-control, .cash-treasury-detail-field { grid-column: 1 / -1; }
+    .cash-treasury-filter-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    #cash-treasury-history-panel .cash-today-table-wrap { padding: 0; }
+    .cash-treasury-table { min-width: 1230px; }
+    .cash-treasury-table th:first-child { width: 160px; }
+    .cash-treasury-table th:nth-child(2) { width: 130px; }
+    .cash-treasury-table th:nth-child(3) { width: 170px; }
+    .cash-treasury-table th:nth-child(4), .cash-treasury-table th:nth-child(5) { width: 140px; }
+    .cash-treasury-table th:nth-child(6) { width: 185px; }
+    .cash-treasury-table th:nth-child(7) { width: 105px; text-align: right; }
+    .cash-treasury-table th:last-child { width: 130px; }
+    .cash-treasury-table .cash-entry-chip { border-radius: 7px; font-size: 11px; }
+    .cash-treasury-table .cash-entry-chip.inflow { background: #e5f7ed; color: #087546; }
+    .cash-treasury-table .cash-entry-chip.outflow { background: #fff0f2; color: #a4384d; }
+    .cash-treasury-table .cash-entry-chip.internal { background: #e8f1ff; color: #1859ce; }
+    .cash-treasury-table button.secondary { min-height: 32px; padding: 6px 8px; font-size: 11px; white-space: nowrap; }
+    @media (max-width: 1100px) {
+      .cash-treasury-operations { grid-template-columns: minmax(0, 1fr); }
+      .cash-treasury-filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 560px) {
+      .cash-period-toolbar .cash-period-presets { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .cash-period-toolbar .cash-period-preset { min-height: 40px; padding: 8px; }
+      .cash-period-summary-grid, .cash-period-dates, .cash-period-movements, .cash-treasury-period-row, .cash-treasury-form, .cash-treasury-expense-fields, .cash-treasury-filter-row { grid-template-columns: minmax(0, 1fr); }
+      .cash-period-view .cash-method-totals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .cash-treasury-account-head { align-items: stretch; }
+      .cash-treasury-account-head > button, .cash-treasury-form > button, .cash-treasury-period-row > button { width: 100%; }
+      .cash-treasury-table button.secondary { min-height: 44px; }
+    }
+    #cash-treasury-movement-open { width: fit-content; max-width: 100%; justify-self: start; }
+    .cash-treasury-drawer .cash-treasury-form { display: flex; align-items: stretch; flex: 1; min-height: 0; margin: 0; flex-direction: column; gap: 0; overflow: hidden; }
+    .cash-treasury-drawer .crm-drawer-body { display: flex; flex-direction: column; gap: 16px; }
+    .cash-treasury-drawer label { display: grid; gap: 7px; min-width: 0; font-size: 13px; font-weight: 650; }
+    .cash-treasury-drawer :is(input, select) { width: 100%; min-width: 0; box-sizing: border-box; min-height: 42px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: var(--text); font: inherit; }
+    .cash-treasury-drawer :is(input, select):focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+    .cash-treasury-drawer .cash-treasury-expense-fields { grid-template-columns: minmax(0, 1fr); }
+    .cash-treasury-drawer .cash-feedback:empty { display: none; }
+    .cash-treasury-drawer .cash-inline-control button { min-width: 44px; min-height: 44px; }
+    .cash-treasury-drawer .crm-drawer-footer button { width: 100%; min-height: 44px; }
+    .cash-treasury-panel .cash-entry-pagination { margin: 0; }
+    body:has(#cash-treasury-movement-drawer:not([hidden])) #cash-treasury-counterparty-dialog { z-index: 130; }
+    ${crmDrawerStyles}
 `
+
+const cashDayIconPaths = {
+  wallet: '<path d="M20 8V5a2 2 0 0 0-2-2L5 6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8H5a2 2 0 0 1 0-4"></path><path d="M21 13h-5v4h5"></path>',
+  tag: '<path d="M3 4h8l10 10-7 7L3 10z"></path><circle cx="7" cy="8" r="1"></circle>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M16 3v4M8 3v4M3 10h18"></path>',
+  layers: '<path d="m12 3 9 5-9 5-9-5zM3 12l9 5 9-5M3 16l9 5 9-5"></path>',
+  bank: '<path d="M3 9h18L12 3zM4 21h16M6 12v6M12 12v6M18 12v6"></path>',
+  user: '<circle cx="12" cy="7" r="4"></circle><path d="M4 21a8 8 0 0 1 16 0"></path>',
+  plus: '<path d="M12 5v14M5 12h14"></path>',
+  box: '<path d="m12 3 9 5v8l-9 5-9-5V8zM3 8l9 5 9-5M12 13v8M7 5.5l9 5"></path>',
+  swap: '<path d="M4 8h16l-4-4M20 16H4l4 4"></path>',
+  play: '<path d="m8 5 11 7-11 7z"></path>',
+  power: '<path d="M12 3v9M5.6 6.4a9 9 0 1 0 12.8 0"></path>',
+  refresh: '<path d="M20 10a8 8 0 1 0 .4 5M20 4v6h-6"></path>',
+  outgoing: '<path d="m6 18 12-12M8 6h10v10"></path>',
+  target: '<circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1"></circle>',
+  receipt: '<rect x="3" y="6" width="18" height="12" rx="2"></rect><circle cx="12" cy="12" r="3"></circle>',
+  check: '<path d="m5 12 4 4L19 6"></path>',
+  edit: '<path d="m4 17-1 4 4-1 13-13-3-3zM14 7l3 3"></path>'
+}
+
+function cashDayIcon(name: keyof typeof cashDayIconPaths) {
+  return '<svg class="cash-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + cashDayIconPaths[name] + '</svg>'
+}
 
 export const cashRegisterMarkup = `
     <section class="cash-register-view" id="cash-register-view" data-section="cash">
       <div class="cash-shell">
         <header class="cash-header">
-          <div><h2>Caja</h2><p>Jornadas, cobros y movimientos del negocio</p></div>
-          <div class="cash-header-actions"><button class="secondary" id="cash-category-shortcut" type="button" hidden>Categor&iacute;as y subcategor&iacute;as</button><span class="cash-status" id="cash-status">Caja cerrada</span></div>
+          <div class="cash-day-heading"><span class="cash-day-icon cash-day-only-icon">${cashDayIcon('wallet')}</span><div><h2>Caja</h2><p>Jornadas, cobros y movimientos del negocio</p></div></div>
+          <div class="cash-header-actions"><button class="secondary" id="cash-category-shortcut" type="button" hidden><span class="cash-day-only-icon">${cashDayIcon('tag')}</span>Categor&iacute;as y subcategor&iacute;as</button><span class="cash-status" id="cash-status">Caja cerrada</span></div>
         </header>
         <nav class="cash-view-switch" aria-label="Vista de Caja">
-          <button class="cash-view-tab active" id="cash-view-day" type="button">Caja actual</button>
-          <button class="cash-view-tab" id="cash-view-period" type="button">Historial de caja</button>
-          <button class="cash-view-tab" id="cash-view-professionals" type="button">Liquidaciones</button>
-          <button class="cash-view-tab" id="cash-view-treasury" type="button" hidden>Tesorer&iacute;a</button>
+          <button class="cash-view-tab active" id="cash-view-day" type="button"><span class="cash-day-only-icon">${cashDayIcon('wallet')}</span>Caja actual</button>
+          <button class="cash-view-tab" id="cash-view-period" type="button"><span class="cash-day-only-icon">${cashDayIcon('calendar')}</span>Historial de caja</button>
+          <button class="cash-view-tab" id="cash-view-professionals" type="button"><span class="cash-day-only-icon">${cashDayIcon('layers')}</span>Liquidaciones</button>
+          <button class="cash-view-tab" id="cash-view-treasury" type="button" hidden><span class="cash-day-only-icon">${cashDayIcon('bank')}</span>Tesorer&iacute;a</button>
         </nav>
         <section class="cash-treasury-view" id="cash-treasury-view" hidden>
           <section class="cash-panel cash-treasury-panel">
-            <div class="cash-treasury-account-head"><div><h3>Cuentas de Tesorer&iacute;a</h3><p>Un saldo separado por cada medio de pago configurado para este negocio.</p></div><button class="secondary" id="cash-treasury-payment-method-add" type="button">+ Medio de pago</button></div>
+            <div class="cash-treasury-account-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('bank')}</span><div><h3>Cuentas de Tesorer&iacute;a</h3><p>Un saldo separado por cada medio de pago configurado para este negocio.</p></div></div><button class="secondary" id="cash-treasury-payment-method-add" type="button">${cashDayIcon('plus')}Medio de pago</button></div>
             <div id="cash-treasury-inactive" hidden><p>Todav&iacute;a no est&aacute habilitada Tesorer&iacute;a.</p><button class="primary" id="cash-treasury-enable" type="button">Habilitar Tesorer&iacute;a</button></div>
             <div class="cash-treasury-account-grid" id="cash-treasury-account-grid"></div>
             <div class="cash-treasury-reserve-card" id="cash-treasury-reserve-card" hidden><span>Efectivo reservado</span><strong id="cash-treasury-balance">$ 0</strong></div>
             <p class="cash-feedback" id="cash-treasury-feedback" role="status"></p>
           </section>
           <section class="cash-panel cash-treasury-panel" id="cash-treasury-consolidated">
-            <div class="cash-section-head"><div><h3>Resultado global del local</h3><p>Caja diaria + gastos y pagos de Tesorer&iacute;a. Traspasos y retiros internos no son egresos.</p></div></div>
-            <div class="cash-treasury-period-row"><label>Desde<input id="cash-treasury-period-from" type="date"></label><label>Hasta<input id="cash-treasury-period-to" type="date"></label><button class="secondary" id="cash-treasury-period-apply" type="button">Consultar</button></div>
+            <div class="cash-section-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('layers')}</span><div><h3>Resultado global del local</h3><p>Caja diaria + gastos y pagos de Tesorer&iacute;a. Traspasos y retiros internos no son egresos.</p></div></div></div>
+            <div class="cash-treasury-period-row"><label>Desde<input id="cash-treasury-period-from" type="date"></label><label>Hasta<input id="cash-treasury-period-to" type="date"></label><button class="secondary" id="cash-treasury-period-apply" type="button">${cashDayIcon('refresh')}Consultar</button></div>
             <p class="cash-feedback" id="cash-treasury-period-feedback" role="status"></p>
             <div class="cash-summary-grid cash-period-summary-grid" aria-label="Resultado global del per&iacute;odo">
-              <article class="cash-summary-card"><span>Cobrado</span><strong id="cash-treasury-consolidated-collected">$0</strong><small id="cash-treasury-consolidated-collected-methods"></small></article>
-              <article class="cash-summary-card"><span>Egresos</span><strong id="cash-treasury-consolidated-outgoing">$0</strong><small id="cash-treasury-consolidated-outgoing-methods"></small><small id="cash-treasury-consolidated-sources"></small></article>
-              <article class="cash-summary-card"><span>Total</span><strong id="cash-treasury-consolidated-total">$0</strong><small id="cash-treasury-consolidated-total-methods"></small></article>
+              <article class="cash-summary-card cash-day-card--collected"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('wallet')}</span><b>Cobrado</b></div><strong id="cash-treasury-consolidated-collected">$0</strong><small id="cash-treasury-consolidated-collected-methods"></small></article>
+              <article class="cash-summary-card cash-day-card--outgoing"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('outgoing')}</span><b>Egresos</b></div><strong id="cash-treasury-consolidated-outgoing">$0</strong><small id="cash-treasury-consolidated-outgoing-methods"></small><small id="cash-treasury-consolidated-sources"></small></article>
+              <article class="cash-summary-card cash-day-card--total"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('layers')}</span><b>Total</b></div><strong id="cash-treasury-consolidated-total">$0</strong><small id="cash-treasury-consolidated-total-methods"></small></article>
             </div>
             <small>Resultado de movimientos del per&iacute;odo, no saldo f&iacute;sico. El efectivo reservado se muestra por separado arriba.</small>
           </section>
           <div class="cash-treasury-operations" id="cash-treasury-operations" hidden>
             <section class="cash-panel cash-treasury-panel" id="cash-treasury-transfer-section" aria-labelledby="cash-treasury-transfer-title">
-              <div class="cash-treasury-operation-head"><h3 id="cash-treasury-transfer-title">Transferir a Tesorer&iacute;a</h3><p>Mov&eacute; efectivo de la Caja diaria a la reserva. Es un movimiento interno, no un gasto.</p></div>
+              <div class="cash-treasury-operation-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('swap')}</span><div><h3 id="cash-treasury-transfer-title">Transferir a Tesorer&iacute;a</h3><p>Mov&eacute; efectivo de la Caja diaria a la reserva. Es un movimiento interno, no un gasto.</p></div></div></div>
               <form class="cash-treasury-form" id="cash-treasury-transfer-form">
                 <label>Importe desde Caja diaria<input id="cash-treasury-transfer-amount" type="number" min="1" step="1" required></label>
-                <button class="primary" type="submit">Transferir a Tesorer&iacute;a</button>
+                <button class="primary" type="submit">${cashDayIcon('swap')}Transferir a Tesorer&iacute;a</button>
               </form>
               <small>Requiere una sesi&oacute;n de Caja abierta. Queda un retiro en Caja y un ingreso interno en Tesorer&iacute;a.</small>
             </section>
             <section class="cash-panel cash-treasury-panel" id="cash-treasury-outflow-section" aria-labelledby="cash-treasury-outflow-title">
-              <div class="cash-treasury-operation-head"><h3 id="cash-treasury-outflow-title">Registrar movimiento de Tesorer&iacute;a</h3><p>Eleg&iacute; la cuenta y clasific&aacute; el ingreso, gasto o retiro.</p></div>
-              <form class="cash-treasury-form" id="cash-treasury-outflow-form">
-                <label>Cuenta<select id="cash-treasury-outflow-account" required><option value="">Eleg&iacute; una cuenta</option></select></label>
-                <label>Tipo<select id="cash-treasury-outflow-kind"><option value="EXPENSE">Gasto</option><option value="WITHDRAWAL">Retiro</option><option value="INCOME">Ingreso</option></select></label>
-                <div class="cash-treasury-expense-fields" id="cash-treasury-expense-fields">
-                  <label>Categor&iacute;a<select id="cash-treasury-outflow-category" required><option value="">Eleg&iacute; una categor&iacute;a</option></select></label>
-                  <label>Subcategor&iacute;a (opcional)<select id="cash-treasury-outflow-subcategory"><option value="">Sin subcategor&iacute;a</option></select></label>
-                  <div class="cash-inline-control"><label>Destinatario (opcional)<select id="cash-treasury-outflow-counterparty"><option value="">Sin destinatario</option></select></label><button class="secondary" id="cash-treasury-counterparty-add" type="button" aria-label="Agregar destinatario" title="Agregar destinatario">+</button></div>
-                </div>
-                <label>Detalle<input id="cash-treasury-outflow-description" maxlength="160" required></label>
-                <label>Importe<input id="cash-treasury-outflow-amount" type="number" min="1" step="1" required></label>
-                <label>Fecha del movimiento<input id="cash-treasury-outflow-date" type="date" required></label>
-                <button class="primary" id="cash-treasury-movement-submit" type="submit">Registrar movimiento</button>
-              </form>
+              <div class="cash-treasury-operation-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('plus')}</span><div><h3 id="cash-treasury-outflow-title">Registrar movimiento de Tesorer&iacute;a</h3><p>Eleg&iacute; la cuenta y clasific&aacute; el ingreso, gasto o retiro.</p></div></div></div>
+              <button class="primary" id="cash-treasury-movement-open" type="button">${cashDayIcon('plus')}Registrar movimiento</button>
             </section>
           </div>
           <section class="cash-panel cash-treasury-panel" id="cash-treasury-history-panel" hidden>
-            <div class="cash-treasury-operation-head"><h3>Movimientos de Tesorer&iacute;a</h3><p>Ingresos internos, pagos, gastos y retiros de la reserva.</p></div>
+            <div class="cash-treasury-operation-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('calendar')}</span><div><h3>Movimientos de Tesorer&iacute;a</h3><p>Ingresos internos, pagos, gastos y retiros de la reserva.</p></div></div></div>
             <div class="cash-treasury-filter-row"><label>Tipo<select id="cash-treasury-filter-kind"><option value="">Todos</option><option value="PROFESSIONAL_PAYMENT">Pagos profesionales</option><option value="PROFESSIONAL_ADVANCE">Adelantos profesionales</option><option value="INCOME">Ingresos</option><option value="EXPENSE">Gastos</option><option value="DAILY_TRANSFER">Traspasos internos</option><option value="WITHDRAWAL">Retiros</option></select></label><label>Buscar por detalle o profesional<input id="cash-treasury-filter-search" maxlength="100" placeholder="Ej.: Gaspar"></label><label>Filtrar categor&iacute;a<select id="cash-treasury-filter-category"><option value="">Todas</option></select></label><label>Filtrar subcategor&iacute;a<select id="cash-treasury-filter-subcategory"><option value="">Todas</option></select></label></div>
-            <small>Filtr&aacute; pagos por tipo y busc&aacute; al profesional por nombre. Los filtros no alteran el saldo reservado. Hasta 20 movimientos por p&aacute;gina.</small>
-            <div class="cash-today-table-wrap"><table class="cash-today-table"><thead><tr><th>Fecha</th><th>Cuenta</th><th>Movimiento</th><th>Categor&iacute;a</th><th>Destinatario</th><th>Detalle</th><th>Importe</th><th>Acciones</th></tr></thead><tbody id="cash-treasury-entries"></tbody></table></div>
-            <div class="cash-treasury-pagination"><span id="cash-treasury-page-info">0 movimientos</span><div><button class="secondary" id="cash-treasury-previous" type="button" disabled>Anterior</button><button class="secondary" id="cash-treasury-next" type="button" disabled>Siguiente</button></div></div>
+            <small>Filtr&aacute; pagos por tipo y busc&aacute; al profesional por nombre. Los filtros no alteran el saldo reservado. Se muestran cinco movimientos al inicio; Ver m&aacute;s agrega diez.</small>
+            <div class="cash-table-scroll cash-today-table-wrap" tabindex="0" role="region" aria-label="Movimientos de Tesorer&iacute;a"><table class="cash-day-table cash-treasury-table"><thead><tr><th scope="col">Fecha</th><th scope="col">Cuenta</th><th scope="col">Movimiento</th><th scope="col">Categor&iacute;a</th><th scope="col">Destinatario</th><th scope="col">Detalle</th><th scope="col">Importe</th><th scope="col">Acciones</th></tr></thead><tbody id="cash-treasury-entries"></tbody></table></div>
+            <nav class="cash-entry-pagination cash-treasury-pagination" id="cash-treasury-pagination" aria-label="Paginaci&oacute;n de movimientos de Tesorer&iacute;a" hidden><span id="cash-treasury-page-info" aria-live="polite">0 movimientos</span><button class="secondary" id="cash-treasury-next" type="button" disabled>Ver m&aacute;s</button></nav>
           </section>
         </section>
         <section class="cash-professional-view" id="cash-professional-view" hidden>
-          <section class="cash-panel cash-professional-heading"><div><h3>Liquidaciones a profesionales</h3><p>Consult&aacute; servicios realizados por per&iacute;odo sin perder de vista el saldo hist&oacute;rico.</p></div><button class="secondary" id="cash-professional-refresh" type="button">Actualizar</button></section>
+          <section class="cash-panel cash-professional-heading"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('layers')}</span><div><h3>Liquidaciones a profesionales</h3><p>Consult&aacute; servicios realizados por per&iacute;odo sin perder de vista el saldo hist&oacute;rico.</p></div></div><div class="cash-professional-heading-actions"><button class="secondary" id="cash-professional-refresh" type="button">${cashDayIcon('refresh')}Actualizar</button><button class="primary" id="cash-professional-payment-open" type="button" hidden>${cashDayIcon('plus')}Registrar pago o adelanto</button></div></section>
           <section class="cash-panel" id="cash-professional-today-panel" hidden><div class="cash-today-table-wrap" id="cash-professional-today-table"></div></section>
           <section class="cash-panel cash-professional-period">
-            <label class="cash-settlement-filter" id="cash-professional-filter-field" hidden>Profesional<select id="cash-professional-filter"><option value="">Todos los profesionales</option></select></label>
-            <div class="cash-period-presets" role="group" aria-label="Per&iacute;odo de liquidaciones">
+            <label class="cash-settlement-filter" id="cash-professional-filter-field" hidden>Profesional<span class="cash-professional-select-wrap">${cashDayIcon('user')}<select id="cash-professional-filter"><option value="">Todos los profesionales</option></select></span></label>
+            <div class="cash-professional-period-control"><span>Per&iacute;odo</span><div class="cash-period-presets" role="group" aria-label="Per&iacute;odo de liquidaciones">
               <button class="cash-period-preset" data-cash-professional-preset="today" type="button">Hoy</button>
               <button class="cash-period-preset active" data-cash-professional-preset="week" type="button">Semana</button>
               <button class="cash-period-preset" data-cash-professional-preset="month" type="button">Mes</button>
-              <button class="cash-period-preset" data-cash-professional-preset="custom" type="button">Personalizado</button>
-            </div>
-            <div class="cash-professional-period-dates">
+              <button class="cash-period-preset" data-cash-professional-preset="custom" type="button">${cashDayIcon('calendar')}Personalizado</button>
+            </div></div>
+            <div class="cash-professional-period-dates" id="cash-professional-period-dates" hidden>
               <label>Desde<input id="cash-professional-period-from" type="date"></label>
               <label>Hasta<input id="cash-professional-period-to" type="date"></label>
               <button class="primary" id="cash-professional-period-apply" type="button">Aplicar</button>
@@ -498,42 +749,37 @@ export const cashRegisterMarkup = `
             </div>
             <p class="cash-feedback" id="cash-professional-period-feedback" role="status"></p>
           </section>
-          <section class="cash-panel cash-professional-panel"><div class="cash-professional-table" id="cash-professional-summary"><div class="cash-inline-state">Cargando liquidaciones...</div></div></section>
-          <section class="cash-panel cash-professional-payment-panel" id="cash-professional-payment-panel"><div><h3>Registrar pago o adelanto</h3><p>En efectivo, Caja traspasa el importe a Tesorer&iacute;a y all&iacute; registra el pago; no queda como gasto de Caja. Transferencia y tarjeta se registran en Caja como &laquo;Liquidaciones profesionales&raquo;.</p></div>
-            <form class="cash-professional-payment-form" id="cash-professional-payment-form">
-              <label>Profesional<select id="cash-professional-payment-professional" required></select></label><label>Origen<select id="cash-professional-payment-source"><option value="CASH_REGISTER">Caja diaria</option><option value="TREASURY">Tesorer&iacute;a (efectivo)</option></select></label><label>Tipo<select id="cash-professional-payment-type"><option value="PAYMENT">Pago</option><option value="ADVANCE">Adelanto</option></select></label><label>Importe<input id="cash-professional-payment-amount" type="number" min="1" step="1" required></label><label>Fecha del pago<input id="cash-professional-payment-date" type="date" required></label><label>Medio<select id="cash-professional-payment-method"><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia</option><option value="CARD">Tarjeta</option></select></label><label class="cash-professional-observation">Observaci&oacute;n<input id="cash-professional-payment-observation" maxlength="160"></label><button class="primary" type="submit">Registrar</button>
-            </form><p class="cash-feedback" id="cash-professional-payment-feedback"></p>
-          </section>
-          <section class="cash-panel cash-professional-panel cash-professional-movements"><div class="cash-section-head"><div><h3>Movimientos recientes</h3><p>Servicios realizados, pagos, adelantos y ajustes del per&iacute;odo.</p></div></div><div class="cash-professional-table" id="cash-professional-entries"><div class="cash-inline-state">Cargando movimientos...</div></div><div class="cash-pagination"><span id="cash-professional-page-info">P&aacute;gina 1 de 1</span><div class="cash-pagination-controls"><button class="secondary" id="cash-professional-previous" type="button">Anterior</button><button class="secondary" id="cash-professional-next" type="button">Siguiente</button></div></div></section>
+          <section class="cash-panel cash-professional-panel"><div class="cash-professional-summary-title"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('user')}</span><h3>Resumen por profesional</h3></div><span class="cash-professional-count" id="cash-professional-count" hidden></span></div><div class="cash-professional-table" id="cash-professional-summary"><div class="cash-inline-state">Cargando liquidaciones...</div></div></section>
+          <section class="cash-panel cash-professional-panel cash-professional-movements"><div class="cash-section-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('calendar')}</span><div><h3>Movimientos recientes</h3><p>Servicios realizados, pagos, adelantos y ajustes del per&iacute;odo.</p></div></div></div><div class="cash-professional-table" id="cash-professional-entries"><div class="cash-inline-state">Cargando movimientos...</div></div><div class="cash-pagination"><span id="cash-professional-page-info">P&aacute;gina 1 de 1</span><div class="cash-pagination-controls"><button class="secondary" id="cash-professional-previous" type="button">Anterior</button><button class="secondary" id="cash-professional-next" type="button">Siguiente</button></div></div></section>
         </section>
         <section class="cash-period-view" id="cash-period-view" hidden>
           <section class="cash-panel cash-period-toolbar">
-            <div class="cash-period-toolbar-head"><div><h3>Historial de caja</h3><p>Analiz&aacute; ingresos y egresos sin mezclar el efectivo esperado de una jornada.</p></div><span class="cash-period-limit">M&aacute;ximo 31 d&iacute;as</span></div>
+            <div class="cash-period-toolbar-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('calendar')}</span><div><h3>Historial de caja</h3><p>Analiz&aacute; ingresos y egresos sin mezclar el efectivo esperado de una jornada.</p></div></div><span class="cash-period-limit">M&aacute;ximo 31 d&iacute;as</span></div>
             <div class="cash-period-presets" role="group" aria-label="Per&iacute;odos r&aacute;pidos">
               <button class="cash-period-preset" data-cash-period-preset="today" type="button">Hoy</button>
               <button class="cash-period-preset" data-cash-period-preset="week" type="button">Esta semana</button>
               <button class="cash-period-preset active" data-cash-period-preset="month" type="button">Este mes</button>
-              <button class="cash-period-preset" data-cash-period-preset="custom" type="button">Personalizado</button>
+              <button class="cash-period-preset" data-cash-period-preset="custom" type="button">${cashDayIcon('calendar')}Personalizado</button>
             </div>
             <div class="cash-period-dates">
               <label>Desde<input id="cash-period-from" type="date"></label>
               <label>Hasta<input id="cash-period-to" type="date"></label>
-              <button class="primary" id="cash-period-apply" type="button">Consultar</button>
+              <button class="primary" id="cash-period-apply" type="button">${cashDayIcon('refresh')}Consultar</button>
             </div>
             <p class="cash-feedback" id="cash-period-feedback" role="status"></p>
           </section>
           <section class="cash-summary-grid cash-period-summary-grid" aria-label="Resumen del per&iacute;odo">
-            <article class="cash-summary-card"><span>Cobrado</span><strong id="cash-period-gross">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-card">$0</strong></div><div class="cash-method-total" id="cash-period-unknown-collected-row" hidden><span>Sin especificar</span><strong id="cash-period-unknown-collected">$0</strong></div></div></article>
-            <article class="cash-summary-card"><span>Egresos</span><strong id="cash-period-expenses-total">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-outgoing-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-outgoing-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-outgoing-card">$0</strong></div><div class="cash-method-total" id="cash-period-unknown-outgoing-row" hidden><span>Sin especificar</span><strong id="cash-period-unknown-outgoing">$0</strong></div></div><small id="cash-period-refunds">Gastos y devoluciones</small></article>
-            <article class="cash-summary-card"><span>Total</span><strong id="cash-period-result">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-total-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-total-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-total-card">$0</strong></div><div class="cash-method-total" id="cash-period-unknown-total-row" hidden><span>Sin especificar</span><strong id="cash-period-unknown-total">$0</strong></div></div><small>No incluye retiros internos ni ajustes de caja</small></article>
+            <article class="cash-summary-card cash-day-card--collected"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('wallet')}</span><b>Cobrado</b></div><strong id="cash-period-gross">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-card">$0</strong></div><div class="cash-method-total" id="cash-period-unknown-collected-row" hidden><span>Sin especificar</span><strong id="cash-period-unknown-collected">$0</strong></div></div></article>
+            <article class="cash-summary-card cash-day-card--outgoing"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('outgoing')}</span><b>Egresos</b></div><strong id="cash-period-expenses-total">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-outgoing-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-outgoing-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-outgoing-card">$0</strong></div><div class="cash-method-total" id="cash-period-unknown-outgoing-row" hidden><span>Sin especificar</span><strong id="cash-period-unknown-outgoing">$0</strong></div></div><small id="cash-period-refunds">Gastos y devoluciones</small></article>
+            <article class="cash-summary-card cash-day-card--total"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('layers')}</span><b>Total</b></div><strong id="cash-period-result">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-total-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-total-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-total-card">$0</strong></div><div class="cash-method-total" id="cash-period-unknown-total-row" hidden><span>Sin especificar</span><strong id="cash-period-unknown-total">$0</strong></div></div><small>No incluye retiros internos ni ajustes de caja</small></article>
           </section>
-          <section class="cash-panel" style="padding:16px;display:grid;gap:12px">
-            <div class="cash-section-head"><div><h3>Otros movimientos de caja</h3><p>Se muestran separados del resultado operativo.</p></div></div>
+          <section class="cash-panel cash-period-other">
+            <div class="cash-section-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('swap')}</span><div><h3>Otros movimientos de caja</h3><p>Se muestran separados del resultado operativo.</p></div></div></div>
             <div class="cash-period-movements"><div class="cash-period-movement"><span>Retiros</span><strong id="cash-period-withdrawals">$0</strong></div><div class="cash-period-movement"><span>Ajustes</span><strong id="cash-period-adjustments">$0</strong></div></div>
             <div class="cash-period-category-list" id="cash-period-category-list"></div>
           </section>
           <section class="cash-panel cash-period-expenses">
-            <div class="cash-section-head"><div><h3>Gastos del per&iacute;odo</h3><p id="cash-period-expense-count">0 movimientos</p></div></div>
+            <div class="cash-section-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('receipt')}</span><div><h3>Gastos del per&iacute;odo</h3><p id="cash-period-expense-count">0 movimientos</p></div></div></div>
             <div class="cash-period-expense-filters">
               <select id="cash-period-category-filter" aria-label="Categor&iacute;a de gasto"><option value="">Todas las categor&iacute;as</option></select>
               <select id="cash-period-subcategory-filter" aria-label="Subcategor&iacute;a de gasto"><option value="">Todas las subcategor&iacute;as</option></select>
@@ -554,31 +800,31 @@ export const cashRegisterMarkup = `
         </section>
         <div class="cash-dashboard" id="cash-dashboard" hidden>
           <section class="cash-session-strip" id="cash-session-strip">
-            <div class="cash-session-copy"><strong id="cash-responsible">Sin responsable</strong><span id="cash-session-time">Sesi&oacute;n activa</span></div>
+            <div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('user')}</span><div class="cash-session-copy"><strong id="cash-responsible">Sin responsable</strong><span id="cash-session-time">Sesi&oacute;n activa</span></div></div>
             <div class="cash-actions">
-              <button class="primary" id="cash-product-sale-open" type="button">Nueva venta</button>
-              <button class="secondary" id="cash-product-catalog-open" type="button">Productos</button>
-              <button class="secondary" id="cash-operation-open" type="button">Registrar operaci&oacute;n</button>
-              <button class="secondary" id="cash-new-session" type="button">Nueva sesi&oacute;n</button>
-              <button class="danger" id="cash-close-day" type="button">Cerrar caja</button>
+              <button class="primary" id="cash-product-sale-open" type="button">${cashDayIcon('plus')}Nueva venta</button>
+              <button class="secondary" id="cash-product-catalog-open" type="button">${cashDayIcon('box')}Productos</button>
+              <button class="secondary" id="cash-operation-open" type="button">${cashDayIcon('swap')}Registrar operaci&oacute;n</button>
+              <button class="secondary" id="cash-new-session" type="button">${cashDayIcon('play')}Nueva sesi&oacute;n</button>
+              <button class="danger" id="cash-close-day" type="button">${cashDayIcon('power')}Cerrar caja</button>
             </div>
           </section>
           <section class="cash-toolbar">
-            <label>Jornada <select id="cash-day-select"></select></label>
-            <div class="cash-actions"><button class="primary" id="cash-open-toolbar" type="button" hidden>Abrir caja</button><button class="secondary" id="cash-refresh" type="button">Actualizar</button></div>
+            <label><span class="cash-day-labeled-icon">${cashDayIcon('calendar')}Jornada</span><select id="cash-day-select"></select></label>
+            <div class="cash-actions"><button class="primary" id="cash-open-toolbar" type="button" hidden>Abrir caja</button><button class="secondary" id="cash-refresh" type="button">${cashDayIcon('refresh')}Actualizar</button></div>
           </section>
           <section class="cash-summary-grid" aria-label="Resumen de Caja">
-            <article class="cash-summary-card"><span>Cobrado</span><strong id="cash-gross">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-method-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-method-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-method-card">$0</strong></div><div class="cash-method-total" id="cash-unknown-collected-row" hidden><span>Sin especificar</span><strong id="cash-unknown-collected">$0</strong></div></div></article>
-            <article class="cash-summary-card"><span>Egresos</span><strong id="cash-outgoing">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-outgoing-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-outgoing-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-outgoing-card">$0</strong></div><div class="cash-method-total" id="cash-unknown-outgoing-row" hidden><span>Sin especificar</span><strong id="cash-unknown-outgoing">$0</strong></div></div><small id="cash-refunds">Gastos y devoluciones</small></article>
-            <article class="cash-summary-card"><span>Total</span><strong id="cash-net">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-total-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-total-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-total-card">$0</strong></div><div class="cash-method-total" id="cash-unknown-total-row" hidden><span>Sin especificar</span><strong id="cash-unknown-total">$0</strong></div></div><small id="cash-incoming">Sin aportes ni retiros internos</small></article>
-            <article class="cash-summary-card"><span id="cash-balance-label">Efectivo esperado</span><strong id="cash-expected">$0</strong><small id="cash-opening">Inicial $0</small></article>
+            <article class="cash-summary-card cash-day-card--collected"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('wallet')}</span><b>Cobrado</b></div><strong id="cash-gross">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-method-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-method-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-method-card">$0</strong></div><div class="cash-method-total" id="cash-unknown-collected-row" hidden><span>Sin especificar</span><strong id="cash-unknown-collected">$0</strong></div></div></article>
+            <article class="cash-summary-card cash-day-card--outgoing"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('outgoing')}</span><b>Egresos</b></div><strong id="cash-outgoing">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-outgoing-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-outgoing-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-outgoing-card">$0</strong></div><div class="cash-method-total" id="cash-unknown-outgoing-row" hidden><span>Sin especificar</span><strong id="cash-unknown-outgoing">$0</strong></div></div><small id="cash-refunds">Gastos y devoluciones</small></article>
+            <article class="cash-summary-card cash-day-card--total"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('layers')}</span><b>Total</b></div><strong id="cash-net">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-total-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-total-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-total-card">$0</strong></div><div class="cash-method-total" id="cash-unknown-total-row" hidden><span>Sin especificar</span><strong id="cash-unknown-total">$0</strong></div></div><small id="cash-incoming">Sin aportes ni retiros internos</small></article>
+            <article class="cash-summary-card cash-day-card--expected"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('target')}</span><b id="cash-balance-label">Efectivo esperado</b></div><strong id="cash-expected">$0</strong><small id="cash-opening">Inicial $0</small></article>
           </section>
           <section class="cash-reconciliation" id="cash-reconciliation" hidden>
             <div class="cash-reconciliation-copy"><strong>Diferencia de cierre</strong><span id="cash-reconciliation-copy">El efectivo contado no coincide con el esperado.</span></div>
             <strong id="cash-reconciliation-amount">$0</strong>
           </section>
           <section class="cash-session-history" id="cash-session-history">
-            <div class="cash-section-head" style="padding:16px"><div><h3>Historial de sesiones</h3><p>Responsables, conteos y diferencias de la jornada.</p></div><strong id="cash-session-count">0 sesiones</strong></div>
+            <div class="cash-section-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('calendar')}</span><div><h3>Historial de sesiones</h3><p>Responsables, conteos y diferencias de la jornada.</p></div></div><strong class="cash-session-count" id="cash-session-count">0 sesiones</strong></div>
             <div class="cash-session-list" id="cash-session-list"></div>
           </section>
           <section class="cash-panel">
@@ -593,11 +839,56 @@ export const cashRegisterMarkup = `
               </div>
             </div>
             <div class="cash-entry-list" id="cash-entry-list"><div class="cash-inline-state">Cargando movimientos...</div></div>
-            <button class="cash-load-more" id="cash-next-page" type="button" hidden>Cargar m&aacute;s movimientos</button>
+            <nav class="cash-pagination cash-entry-pagination" id="cash-entry-pagination" aria-label="Paginaci&oacute;n de movimientos" hidden>
+              <span id="cash-entry-page-info" aria-live="polite"></span>
+              <button class="secondary" id="cash-next-page" type="button" disabled>Ver m&aacute;s</button>
+            </nav>
           </section>
         </div>
       </div>
     </section>
+    <div class="cash-dialog-backdrop crm-drawer-backdrop" id="cash-professional-payment-drawer" hidden>
+      <section class="crm-drawer cash-professional-drawer cash-professional-payment-panel" id="cash-professional-payment-panel" role="dialog" aria-modal="true" aria-labelledby="cash-professional-payment-title" tabindex="-1">
+        <header class="crm-drawer-header"><h3 id="cash-professional-payment-title">Registrar pago o adelanto</h3><button class="icon-button" id="cash-professional-payment-close" type="button" aria-label="Cerrar panel de pago">X</button></header>
+        <form class="cash-professional-payment-form" id="cash-professional-payment-form">
+          <div class="crm-drawer-body">
+            <div class="cash-professional-payment-type" role="group" aria-label="Tipo de registro"><button type="button" data-professional-payment-type="PAYMENT" aria-pressed="true">Pago</button><button type="button" data-professional-payment-type="ADVANCE" aria-pressed="false">Adelanto</button></div>
+            <input id="cash-professional-payment-type" type="hidden" value="PAYMENT">
+            <label>Profesional<select id="cash-professional-payment-professional" required><option value="">Eleg&iacute; un profesional</option></select></label>
+            <p class="cash-professional-payment-balance"><span>Saldo actual</span><strong id="cash-professional-payment-balance">&mdash;</strong></p>
+            <label class="cash-professional-amount">Importe<input id="cash-professional-payment-amount" type="number" inputmode="numeric" min="1" step="1" required></label>
+            <label>Origen del dinero<select id="cash-professional-payment-source"><option value="CASH_REGISTER">Caja diaria</option><option value="TREASURY">Tesorer&iacute;a (efectivo)</option></select></label>
+            <label>Medio de pago<select id="cash-professional-payment-method"><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia</option><option value="CARD">Tarjeta</option></select></label>
+            <label>Fecha del pago<input id="cash-professional-payment-date" type="date" required></label>
+            <label>Observaci&oacute;n opcional<textarea id="cash-professional-payment-observation" maxlength="160" placeholder="Agregar una observaci&oacute;n"></textarea></label>
+            <p class="cash-professional-payment-context" id="cash-professional-payment-context"></p>
+            <p class="cash-feedback" id="cash-professional-payment-feedback" role="status"></p>
+          </div>
+          <footer class="crm-drawer-footer"><button class="primary" id="cash-professional-payment-submit" type="submit">Confirmar pago</button></footer>
+        </form>
+      </section>
+    </div>
+    <div class="cash-dialog-backdrop crm-drawer-backdrop" id="cash-treasury-movement-drawer" hidden>
+      <section class="crm-drawer cash-treasury-drawer" id="cash-treasury-movement-panel" role="dialog" aria-modal="true" aria-labelledby="cash-treasury-movement-title" tabindex="-1">
+        <header class="crm-drawer-header"><h3 id="cash-treasury-movement-title">Registrar movimiento de Tesorer&iacute;a</h3><button class="icon-button" id="cash-treasury-movement-close" type="button" aria-label="Cerrar panel de movimiento">X</button></header>
+        <form class="cash-treasury-form" id="cash-treasury-outflow-form">
+          <div class="crm-drawer-body">
+                <label>Cuenta<select id="cash-treasury-outflow-account" required><option value="">Eleg&iacute; una cuenta</option></select></label>
+                <label>Tipo<select id="cash-treasury-outflow-kind"><option value="EXPENSE">Gasto</option><option value="WITHDRAWAL">Retiro</option><option value="INCOME">Ingreso</option></select></label>
+                <div class="cash-treasury-expense-fields" id="cash-treasury-expense-fields">
+                  <label>Categor&iacute;a<select id="cash-treasury-outflow-category" required><option value="">Eleg&iacute; una categor&iacute;a</option></select></label>
+                  <label>Subcategor&iacute;a (opcional)<select id="cash-treasury-outflow-subcategory"><option value="">Sin subcategor&iacute;a</option></select></label>
+                  <div class="cash-inline-control"><label>Destinatario (opcional)<select id="cash-treasury-outflow-counterparty"><option value="">Sin destinatario</option></select></label><button class="secondary" id="cash-treasury-counterparty-add" type="button" aria-label="Agregar destinatario" title="Agregar destinatario">+</button></div>
+                </div>
+                <label class="cash-treasury-detail-field">Detalle<input id="cash-treasury-outflow-description" maxlength="160" required></label>
+                <label>Importe<input id="cash-treasury-outflow-amount" type="number" min="1" step="1" required></label>
+                <label>Fecha del movimiento<input id="cash-treasury-outflow-date" type="date" required></label>
+            <p class="cash-feedback" id="cash-treasury-outflow-feedback" role="status"></p>
+          </div>
+          <footer class="crm-drawer-footer"><button class="primary" id="cash-treasury-movement-submit" type="submit">Confirmar movimiento</button></footer>
+        </form>
+      </section>
+    </div>
     <div class="cash-dialog-backdrop" id="cash-session-dialog" hidden>
       <section class="cash-dialog" role="dialog" aria-modal="true" aria-labelledby="cash-session-title">
         <div class="cash-dialog-head"><h3 id="cash-session-title">Abrir caja</h3><button class="icon-button" id="cash-session-x" type="button" aria-label="Cerrar">X</button></div>
@@ -830,13 +1121,17 @@ export const appointmentFinanceMarkup = `
 `
 
 export const cashRegisterScript = `
+    ${crmDrawerScript}
     const cashUi = {
       correction: document.getElementById('appointment-service-correction'), correctionToggle: document.getElementById('appointment-correction-toggle'), correctionPanel: document.getElementById('appointment-correction-panel'), correctionService: document.getElementById('appointment-correction-service'), correctionCurrent: document.getElementById('appointment-correction-current'), correctionPrevious: document.getElementById('appointment-correction-previous'), correctionNext: document.getElementById('appointment-correction-next'), correctionProducts: document.getElementById('appointment-correction-products'), correctionDiscount: document.getElementById('appointment-correction-discount'), correctionPaid: document.getElementById('appointment-correction-paid'), correctionImpact: document.getElementById('appointment-correction-impact'), correctionRefund: document.getElementById('appointment-correction-refund'), correctionSession: document.getElementById('appointment-correction-session'), correctionMethod: document.getElementById('appointment-correction-method'), correctionReason: document.getElementById('appointment-correction-reason'), correctionFeedback: document.getElementById('appointment-correction-feedback'), correctionSubmit: document.getElementById('appointment-correction-submit'), correctionCancel: document.getElementById('appointment-correction-cancel'),
       view: document.getElementById('cash-register-view'), status: document.getElementById('cash-status'), categoryShortcut: document.getElementById('cash-category-shortcut'), empty: document.getElementById('cash-empty-state'), emptyCopy: document.getElementById('cash-empty-copy'), dashboard: document.getElementById('cash-dashboard'), viewDay: document.getElementById('cash-view-day'), viewPeriod: document.getElementById('cash-view-period'), viewProfessionals: document.getElementById('cash-view-professionals'), viewTreasury: document.getElementById('cash-view-treasury'), treasuryView: document.getElementById('cash-treasury-view'), periodView: document.getElementById('cash-period-view'), professionalView: document.getElementById('cash-professional-view'), professionalSummary: document.getElementById('cash-professional-summary'), professionalRefresh: document.getElementById('cash-professional-refresh'), professionalPaymentPanel: document.getElementById('cash-professional-payment-panel'), professionalPaymentForm: document.getElementById('cash-professional-payment-form'), professionalEntries: document.getElementById('cash-professional-entries'), professionalPaymentProfessional: document.getElementById('cash-professional-payment-professional'), professionalPaymentSource: document.getElementById('cash-professional-payment-source'), professionalPaymentType: document.getElementById('cash-professional-payment-type'), professionalPaymentAmount: document.getElementById('cash-professional-payment-amount'), professionalPaymentMethod: document.getElementById('cash-professional-payment-method'), professionalPaymentObservation: document.getElementById('cash-professional-payment-observation'), professionalPaymentFeedback: document.getElementById('cash-professional-payment-feedback'), professionalPeriodFrom: document.getElementById('cash-professional-period-from'), professionalPeriodTo: document.getElementById('cash-professional-period-to'), professionalPeriodApply: document.getElementById('cash-professional-period-apply'), professionalPeriodLabel: document.getElementById('cash-professional-period-label'), professionalPeriodFeedback: document.getElementById('cash-professional-period-feedback'), professionalPageInfo: document.getElementById('cash-professional-page-info'), professionalPrevious: document.getElementById('cash-professional-previous'), professionalNext: document.getElementById('cash-professional-next'),
+      professionalPaymentDrawer: document.getElementById('cash-professional-payment-drawer'), professionalPaymentClose: document.getElementById('cash-professional-payment-close'), professionalPaymentOpen: document.getElementById('cash-professional-payment-open'), professionalPaymentBalance: document.getElementById('cash-professional-payment-balance'), professionalPaymentContext: document.getElementById('cash-professional-payment-context'), professionalPaymentSubmit: document.getElementById('cash-professional-payment-submit'), professionalPeriodDates: document.getElementById('cash-professional-period-dates'),
+      professionalCount: document.getElementById('cash-professional-count'),
       professionalFilterField: document.getElementById('cash-professional-filter-field'), professionalFilter: document.getElementById('cash-professional-filter'),
       openEmpty: document.getElementById('cash-open-empty'), openToolbar: document.getElementById('cash-open-toolbar'), sessionStrip: document.getElementById('cash-session-strip'), responsible: document.getElementById('cash-responsible'), sessionTime: document.getElementById('cash-session-time'), operationOpen: document.getElementById('cash-operation-open'), newSession: document.getElementById('cash-new-session'), closeDay: document.getElementById('cash-close-day'), daySelect: document.getElementById('cash-day-select'), refresh: document.getElementById('cash-refresh'),
       gross: document.getElementById('cash-gross'), methodCash: document.getElementById('cash-method-cash'), methodTransfer: document.getElementById('cash-method-transfer'), methodCard: document.getElementById('cash-method-card'), unknownCollected: document.getElementById('cash-unknown-collected'), unknownCollectedRow: document.getElementById('cash-unknown-collected-row'), unknownOutgoing: document.getElementById('cash-unknown-outgoing'), unknownOutgoingRow: document.getElementById('cash-unknown-outgoing-row'), unknownTotal: document.getElementById('cash-unknown-total'), unknownTotalRow: document.getElementById('cash-unknown-total-row'), net: document.getElementById('cash-net'), refunds: document.getElementById('cash-refunds'), outgoing: document.getElementById('cash-outgoing'), outgoingCash: document.getElementById('cash-outgoing-cash'), outgoingTransfer: document.getElementById('cash-outgoing-transfer'), outgoingCard: document.getElementById('cash-outgoing-card'), totalCash: document.getElementById('cash-total-cash'), totalTransfer: document.getElementById('cash-total-transfer'), totalCard: document.getElementById('cash-total-card'), incoming: document.getElementById('cash-incoming'), balanceLabel: document.getElementById('cash-balance-label'), expected: document.getElementById('cash-expected'), opening: document.getElementById('cash-opening'), reconciliation: document.getElementById('cash-reconciliation'), reconciliationCopy: document.getElementById('cash-reconciliation-copy'), reconciliationAmount: document.getElementById('cash-reconciliation-amount'), sessionHistory: document.getElementById('cash-session-history'), sessionCount: document.getElementById('cash-session-count'), sessionList: document.getElementById('cash-session-list'),
-      typeFilter: document.getElementById('cash-type-filter'), methodFilter: document.getElementById('cash-method-filter'), categoryFilter: document.getElementById('cash-category-filter'), subcategoryFilter: document.getElementById('cash-subcategory-filter'), sessionFilter: document.getElementById('cash-session-filter'), categoryManage: document.getElementById('cash-expense-category-manage'), search: document.getElementById('cash-search'), entryList: document.getElementById('cash-entry-list'), nextPage: document.getElementById('cash-next-page'),
+      typeFilter: document.getElementById('cash-type-filter'), methodFilter: document.getElementById('cash-method-filter'), categoryFilter: document.getElementById('cash-category-filter'), subcategoryFilter: document.getElementById('cash-subcategory-filter'), sessionFilter: document.getElementById('cash-session-filter'), categoryManage: document.getElementById('cash-expense-category-manage'), search: document.getElementById('cash-search'), entryList: document.getElementById('cash-entry-list'),
+      entryPagination: document.getElementById('cash-entry-pagination'), entryPageInfo: document.getElementById('cash-entry-page-info'), nextPage: document.getElementById('cash-next-page'),
       periodFrom: document.getElementById('cash-period-from'), periodTo: document.getElementById('cash-period-to'), periodApply: document.getElementById('cash-period-apply'), periodFeedback: document.getElementById('cash-period-feedback'), periodGross: document.getElementById('cash-period-gross'), periodCash: document.getElementById('cash-period-cash'), periodTransfer: document.getElementById('cash-period-transfer'), periodCard: document.getElementById('cash-period-card'), periodUnknownCollected: document.getElementById('cash-period-unknown-collected'), periodUnknownCollectedRow: document.getElementById('cash-period-unknown-collected-row'), periodUnknownOutgoing: document.getElementById('cash-period-unknown-outgoing'), periodUnknownOutgoingRow: document.getElementById('cash-period-unknown-outgoing-row'), periodUnknownTotal: document.getElementById('cash-period-unknown-total'), periodUnknownTotalRow: document.getElementById('cash-period-unknown-total-row'), periodRefunds: document.getElementById('cash-period-refunds'), periodExpensesTotal: document.getElementById('cash-period-expenses-total'), periodOutgoingCash: document.getElementById('cash-period-outgoing-cash'), periodOutgoingTransfer: document.getElementById('cash-period-outgoing-transfer'), periodOutgoingCard: document.getElementById('cash-period-outgoing-card'), periodResult: document.getElementById('cash-period-result'), periodTotalCash: document.getElementById('cash-period-total-cash'), periodTotalTransfer: document.getElementById('cash-period-total-transfer'), periodTotalCard: document.getElementById('cash-period-total-card'), periodWithdrawals: document.getElementById('cash-period-withdrawals'), periodAdjustments: document.getElementById('cash-period-adjustments'), periodCategoryList: document.getElementById('cash-period-category-list'), periodCategoryFilter: document.getElementById('cash-period-category-filter'), periodSubcategoryFilter: document.getElementById('cash-period-subcategory-filter'), periodMethodFilter: document.getElementById('cash-period-method-filter'), periodSearch: document.getElementById('cash-period-search'), periodPageSize: document.getElementById('cash-period-page-size'), periodExpenseList: document.getElementById('cash-period-expense-list'), periodExpenseCount: document.getElementById('cash-period-expense-count'), periodPageInfo: document.getElementById('cash-period-page-info'), periodPrevious: document.getElementById('cash-period-previous'), periodNext: document.getElementById('cash-period-next'),
       sessionDialog: document.getElementById('cash-session-dialog'), sessionTitle: document.getElementById('cash-session-title'), sessionForm: document.getElementById('cash-session-form'), sessionX: document.getElementById('cash-session-x'), sessionCancel: document.getElementById('cash-session-cancel'), sessionSubmit: document.getElementById('cash-session-submit'), sessionResponsible: document.getElementById('cash-session-responsible'), sessionHelp: document.getElementById('cash-session-help'), responsibleField: document.getElementById('cash-responsible-field'), openingField: document.getElementById('cash-opening-field'), openingLabel: document.getElementById('cash-opening-label'), countedField: document.getElementById('cash-counted-field'), countedLabel: document.getElementById('cash-counted-label'), openingCash: document.getElementById('cash-opening-cash'), countedCash: document.getElementById('cash-counted-cash'), sessionReconciliation: document.getElementById('cash-session-reconciliation'), sessionExpected: document.getElementById('cash-session-expected'), sessionCounted: document.getElementById('cash-session-counted'), sessionDifference: document.getElementById('cash-session-difference'), differenceConfirmField: document.getElementById('cash-difference-confirm-field'), differenceConfirm: document.getElementById('cash-difference-confirm'), differenceConfirmCopy: document.getElementById('cash-difference-confirm-copy'), closeChangeSection: document.getElementById('cash-close-change-section'), closeLeaveChange: document.getElementById('cash-close-leave-change'), closeChangeField: document.getElementById('cash-close-change-field'), closeCashToLeave: document.getElementById('cash-close-cash-to-leave'), closeChangePreview: document.getElementById('cash-close-change-preview'), closeNextOpening: document.getElementById('cash-close-next-opening'), closeTransferAmount: document.getElementById('cash-close-transfer-amount'), sessionFeedback: document.getElementById('cash-session-feedback'), sessionLoading: document.getElementById('cash-session-loading'),
       operationDialog: document.getElementById('cash-operation-dialog'), operationForm: document.getElementById('cash-operation-form'), operationX: document.getElementById('cash-operation-x'), operationCancel: document.getElementById('cash-operation-cancel'), operationType: document.getElementById('cash-operation-type'), operationMethod: document.getElementById('cash-operation-method'), operationMethodField: document.getElementById('cash-operation-method-field'), operationCategory: document.getElementById('cash-operation-category'), operationSubcategory: document.getElementById('cash-operation-subcategory'), operationCategoryField: document.getElementById('cash-operation-category-field'), operationAmount: document.getElementById('cash-operation-amount'), operationAmountField: document.getElementById('cash-operation-amount-field'), operationDelta: document.getElementById('cash-operation-delta'), operationDeltaField: document.getElementById('cash-operation-delta-field'), operationDescription: document.getElementById('cash-operation-description'), operationDescriptionField: document.getElementById('cash-operation-description-field'), operationCounterparty: document.getElementById('cash-operation-counterparty'), operationCounterpartyField: document.getElementById('cash-operation-counterparty-field'), operationObservation: document.getElementById('cash-operation-observation'), operationFeedback: document.getElementById('cash-operation-feedback'), operationSubmit: document.getElementById('cash-operation-submit'),
@@ -852,7 +1147,7 @@ export const cashRegisterScript = `
       finance: document.getElementById('appointment-finance'), financeBalance: document.getElementById('appointment-finance-balance'), financeServiceSubtotal: document.getElementById('appointment-finance-service-subtotal'), financeProductSubtotal: document.getElementById('appointment-finance-product-subtotal'), financeDiscount: document.getElementById('appointment-finance-discount'), financeTotal: document.getElementById('appointment-finance-total'), financePaid: document.getElementById('appointment-finance-paid'), financeDue: document.getElementById('appointment-finance-due'), financeHistory: document.getElementById('appointment-finance-history'), financeFeedback: document.getElementById('appointment-finance-feedback'), totalForm: document.getElementById('appointment-total-form'), totalToggle: document.getElementById('appointment-adjust-total-toggle'), totalSubmit: document.getElementById('appointment-total-submit'), totalCancel: document.getElementById('appointment-total-cancel'), estimatedTotal: document.getElementById('appointment-estimated-total'), totalReason: document.getElementById('appointment-total-reason'), originalTotal: document.getElementById('appointment-original-total'), minimumTotal: document.getElementById('appointment-minimum-total'), minimumTotalRow: document.getElementById('appointment-minimum-total-row'), totalHelp: document.getElementById('appointment-total-help'), editCollectTotal: document.getElementById('appointment-edit-collect-total'), editDeposit: document.getElementById('appointment-edit-deposit'), editDiscountToggle: document.getElementById('appointment-edit-discount-toggle'), discountForm: document.getElementById('appointment-discount-form'), discountSubmit: document.getElementById('appointment-discount-submit'), discountType: document.getElementById('appointment-discount-type'), discountValue: document.getElementById('appointment-discount-value'), discountValueLabel: document.getElementById('appointment-discount-value-label'), discountHelp: document.getElementById('appointment-discount-help'), editDepositPanel: document.getElementById('appointment-edit-deposit-panel'), editDepositAmount: document.getElementById('appointment-edit-deposit-amount'), editDepositMethod: document.getElementById('appointment-edit-deposit-method'), editDepositSubmit: document.getElementById('appointment-edit-deposit-submit'), paymentForm: document.getElementById('appointment-edit-payment-panel'), paymentSubmit: document.getElementById('appointment-payment-submit'), paymentAmount: document.getElementById('appointment-payment-amount'), paymentMethod: document.getElementById('appointment-payment-method'), paymentLineTwo: document.getElementById('appointment-payment-line-two'), paymentAmountTwo: document.getElementById('appointment-payment-amount-two'), paymentMethodTwo: document.getElementById('appointment-payment-method-two'), addPaymentLine: document.getElementById('appointment-add-payment-line'), paymentCompleteRow: document.getElementById('appointment-payment-complete-row'), paymentComplete: document.getElementById('appointment-payment-complete'), editObservationRow: document.getElementById('appointment-edit-observation-row'), paymentObservation: document.getElementById('appointment-payment-observation'), cashRequired: document.getElementById('appointment-cash-required'), appointmentOpenCash: document.getElementById('appointment-open-cash')
     }
     function createCashRegisterWorkspace() {
-      return { viewMode: 'day', periodPreset: 'month', periodPage: 1, periodTotalPages: 1, periodLoaded: false, professionalPeriodPreset: 'week', professionalPage: 1, professionalTotalPages: 1, professionalExpandedIds: new Set(), professionalSummaryResult: null, current: null, days: [], selectedDayId: null, entries: [], nextCursor: null, permissions: {}, responsibleUsers: [], expenseCategories: [], expenseSubcategories: [], paymentMethods: [], treasuryAccounts: [], treasuryMovements: [], treasuryCounterparties: [], treasuryPaymentMethods: [], editingExpenseCategoryId: null, editingExpenseSubcategoryId: null, productCategories: [], products: [], editingProductCategoryId: null, editingProductId: null, productSaleItems: [], productSaleIdempotencyKey: null, appointmentProductItems: [], appointmentProductRemovalId: null, sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, loaded: false, appointmentFinance: null, appointmentFinanceRequestId: 0, appointmentFinanceSummaryCache: {}, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, financeSummaryRefreshTimer: null, createFinance: { collectTotal: false, deposit: false, discount: false }, editFinance: { adjust: false, collectTotal: false, deposit: false, discount: false } }
+      return { viewMode: 'day', periodPreset: 'month', periodPage: 1, periodTotalPages: 1, periodLoaded: false, professionalPeriodPreset: 'week', professionalPage: 1, professionalTotalPages: 1, professionalExpandedIds: new Set(), professionalSummaryResult: null, current: null, days: [], selectedDayId: null, entries: [], entryPage: null, permissions: {}, responsibleUsers: [], expenseCategories: [], expenseSubcategories: [], paymentMethods: [], treasuryAccounts: [], treasuryMovements: [], treasuryList: null, treasuryRequest: null, treasuryCounterparties: [], treasuryPaymentMethods: [], editingExpenseCategoryId: null, editingExpenseSubcategoryId: null, productCategories: [], products: [], editingProductCategoryId: null, editingProductId: null, productSaleItems: [], productSaleIdempotencyKey: null, appointmentProductItems: [], appointmentProductRemovalId: null, sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, loaded: false, appointmentFinance: null, appointmentFinanceRequestId: 0, appointmentFinanceSummaryCache: {}, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, financeSummaryRefreshTimer: null, createFinance: { collectTotal: false, deposit: false, discount: false }, editFinance: { adjust: false, collectTotal: false, deposit: false, discount: false } }
     }
     state.cashRegister = createCashRegisterWorkspace()
 
@@ -1094,8 +1389,10 @@ export const cashRegisterScript = `
         let payload
         try { payload = JSON.parse(event.data) } catch { return }
         if (state.cashRegister.eventSource !== source || payload.businessId !== state.businessId || !payload.entityId) return
+        const ownEntry = payload.entity === 'ENTRY' && state.cashRegister.ownAppointmentPaymentEntries?.delete(payload.entityId)
         invalidateCashRegister()
         if (document.body.dataset.currentSection === 'cash') loadCashRegister({ preserve: true }).catch((error) => showCrmToast(error.message, 'error'))
+        if (ownEntry) return
         refreshVisibleAppointmentFinanceSummaries()
         if (state.editingAppointmentId && cashUi.finance.open && !cashUi.finance.hidden) loadAppointmentFinance({ force: true, preserve: true })
       })
@@ -1224,14 +1521,19 @@ export const cashRegisterScript = `
         cashUi.sessionList.innerHTML = '<div class="cash-inline-state">No hay sesiones registradas.</div>'
         return
       }
-      cashUi.sessionList.innerHTML = rows.map((session) => {
+      const sessionRows = rows.map((session) => {
         const expected = session.expectedCash ?? (session.closedAt ? null : currentSessionExpectedCash)
         const counted = session.countedCash
         const difference = session.cashDifference
         const differenceClass = Number(difference) > 0 ? ' positive' : Number(difference) < 0 ? ' negative' : ''
-        const period = cashDate(session.openedAt) + (session.closedAt ? ' — ' + cashDate(session.closedAt) : ' — Activa')
-        return '<article class="cash-session-row"><div><strong>' + escapeHtml(session.responsibleName || 'Responsable') + '</strong><small>' + escapeHtml(period) + '</small></div><div><span>Esperado</span><strong>' + (expected === null || expected === undefined ? '--' : escapeHtml(cashMoney(expected))) + '</strong></div><div><span>Contado</span><strong>' + (counted === null || counted === undefined ? '--' : escapeHtml(cashMoney(counted))) + '</strong></div><div><span>Diferencia</span><strong class="cash-session-difference' + differenceClass + '">' + (difference === null || difference === undefined ? '--' : escapeHtml(cashSignedMoney(difference))) + '</strong></div></article>'
+        const period = cashDate(session.openedAt) + (session.closedAt ? ' — ' + cashDate(session.closedAt) : '')
+        const status = session.closedAt ? '<span class="cash-session-badge">Cerrada</span>' : '<span class="cash-session-badge active">Activa</span>'
+        return '<tr class="cash-session-row"><th scope="row"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('user')}</span><div><strong>' + escapeHtml(session.responsibleName || 'Responsable') + '</strong><small>' + escapeHtml(period) + '</small></div></div></th><td>' + status + '</td>' +
+          '<td><strong class="cash-session-amount">' + (expected == null ? '&mdash;' : escapeHtml(cashMoney(expected))) + '</strong></td>' +
+          '<td><strong class="cash-session-amount">' + (counted == null ? '&mdash;' : escapeHtml(cashMoney(counted))) + '</strong></td>' +
+          '<td><strong class="cash-session-amount cash-session-difference' + differenceClass + '">' + (difference == null ? '&mdash;' : escapeHtml(cashSignedMoney(difference))) + '</strong></td></tr>'
       }).join('')
+      cashUi.sessionList.innerHTML = '<div class="cash-table-scroll" role="region" aria-label="Historial de sesiones" tabindex="0"><table class="cash-day-table cash-sessions-table" aria-label="Sesiones de la jornada"><thead><tr><th scope="col">Responsable</th><th scope="col">Estado</th><th scope="col">Esperado</th><th scope="col">Contado</th><th scope="col">Diferencia</th></tr></thead><tbody>' + sessionRows + '</tbody></table></div>'
     }
 
     function renderCashSummary(day, summary, sessions = [], currentSessionExpectedCash = null) {
@@ -1513,56 +1815,121 @@ export const cashRegisterScript = `
       if (!state.cashRegister.entries.length) {
         cashUi.entryList.innerHTML = '<div class="cash-inline-state">No hay movimientos para estos filtros.</div>'
       } else {
-        cashUi.entryList.innerHTML = state.cashRegister.entries.map((entry) => {
+        const rows = state.cashRegister.entries.map((entry) => {
           const title = entry.description || entry.counterparty || (entry.customerNames || []).join(', ') || cashTypeLabels[entry.type] || entry.type
           const correctionDetail = entry.correctionSourceId ? 'Correcci&oacute;n de fecha' : entry.dateCorrected ? 'Fecha corregida' : ''
-          const details = [cashTypeLabels[entry.type] || entry.type, entry.expenseCategoryName ? 'Categor&iacute;a: ' + escapeHtml(entry.expenseCategoryName) : '', entry.expenseSubcategoryName ? 'Subcategor&iacute;a: ' + escapeHtml(entry.expenseSubcategoryName) : '', entry.observation ? escapeHtml(entry.observation) : '', correctionDetail, entry.correctionReason ? 'Motivo: ' + escapeHtml(entry.correctionReason) : ''].filter(Boolean).join(' · ')
+          const details = [escapeHtml(cashTypeLabels[entry.type] || entry.type), entry.observation ? escapeHtml(entry.observation) : '', correctionDetail, entry.correctionReason ? 'Motivo: ' + escapeHtml(entry.correctionReason) : ''].filter(Boolean).join(' · ')
           const canCorrectDate = ['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(state.currentUser?.role) && ['PAYMENT', 'INCOME', 'EXPENSE'].includes(entry.type) && !entry.reversesEntryId && !entry.reversedById && !entry.correctionSourceId && !entry.dateCorrected
-          const dateAction = canCorrectDate ? '<button class="secondary" type="button" data-cash-correct-date="' + escapeHtml(entry.id) + '">Corregir fecha</button>' : ''
-          const serviceAction = canCorrectCashEntryService(entry) ? '<button class="secondary" type="button" data-cash-correct-service="' + escapeHtml(entry.id) + '">Corregir servicio</button>' : ''
-          const action = '<div class="cash-entry-action cash-entry-actions">' + dateAction + serviceAction + '</div>'
-          return '<article class="cash-entry"><div class="cash-entry-main"><strong>' + escapeHtml(title) + '</strong><span>' + details + '</span></div><small>' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + '</small><small>' + escapeHtml(cashDate(entry.effectiveAt)) + '</small><small>' + escapeHtml(entry.origin || '') + '</small><strong class="cash-entry-amount ' + entry.direction.toLowerCase() + '">' + (entry.direction === 'OUTFLOW' ? '−' : '+') + cashMoney(entry.amount) + '</strong>' + action + '</article>'
+          const dateAction = canCorrectDate ? '<button class="secondary" type="button" data-cash-correct-date="' + escapeHtml(entry.id) + '">${cashDayIcon('calendar')}Corregir fecha</button>' : ''
+          const serviceAction = canCorrectCashEntryService(entry) ? '<button class="secondary" type="button" data-cash-correct-service="' + escapeHtml(entry.id) + '">${cashDayIcon('edit')}Corregir servicio</button>' : ''
+          const isOutflow = entry.direction === 'OUTFLOW'
+          const direction = isOutflow ? 'outflow' : 'inflow'
+          const movementIcon = isOutflow ? '${cashDayIcon('outgoing')}' : '${cashDayIcon('receipt')}'
+          const category = entry.expenseCategoryName ? escapeHtml(entry.expenseCategoryName) + (entry.expenseSubcategoryName ? ' · ' + escapeHtml(entry.expenseSubcategoryName) : '') : ''
+          const origin = entry.origin ? '<span class="cash-entry-chip origin">' + escapeHtml(entry.origin) + '</span>' : ''
+          return '<tr class="cash-entry"><th scope="row"><div class="cash-day-labeled-icon"><span class="cash-day-icon ' + direction + '">' + movementIcon + '</span><div><strong>' + escapeHtml(title) + '</strong><small>' + details + '</small></div></div></th>' +
+            '<td><span class="cash-entry-chip">' + escapeHtml(cashMethodLabels[entry.method] || entry.method || 'Sin especificar') + '</span></td><td>' + escapeHtml(cashDate(entry.effectiveAt)) + '</td>' +
+            '<td>' + (category ? category + (origin ? '<br>' + origin : '') : origin || '&mdash;') + '</td>' +
+            '<td class="cash-entry-amount ' + direction + '">' + (isOutflow ? '− ' : '+ ') + escapeHtml(cashMoney(entry.amount)) + '</td><td><div class="cash-entry-actions">' + (dateAction + serviceAction || '&mdash;') + '</div></td></tr>'
         }).join('')
+        cashUi.entryList.innerHTML = '<div class="cash-table-scroll" role="region" aria-label="Movimientos de caja" tabindex="0"><table class="cash-day-table cash-movements-table" aria-label="Detalle de movimientos"><thead><tr><th scope="col">Concepto</th><th scope="col">Medio</th><th scope="col">Fecha y hora</th><th scope="col">Categor&iacute;a</th><th scope="col">Importe</th><th scope="col">Acciones</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
       }
-      cashUi.nextPage.hidden = !state.cashRegister.nextCursor
     }
 
-    function loadCashEntries(options = {}) {
-      const register = state.cashRegister
-      const scope = cashRegisterScopeKey()
-      const dayId = state.cashRegister.selectedDayId
-      if (!dayId) return
-      const params = new URLSearchParams({ limit: '40' })
+    const cashEntryInitialSize = 5
+    const cashEntryAdditionalSize = 10
+
+    function cashEntriesFilterUrl(dayId) {
+      const params = new URLSearchParams({ limit: String(cashEntryInitialSize) })
       if (isCashBusinessScopedRole() && state.businessId) params.set('businessId', state.businessId)
-      if (options.append && state.cashRegister.nextCursor) params.set('cursor', state.cashRegister.nextCursor)
       if (cashUi.typeFilter.value) params.set('type', cashUi.typeFilter.value)
       if (cashUi.methodFilter.value) params.set('method', cashUi.methodFilter.value)
       if (cashUi.categoryFilter.value) params.set('categoryId', cashUi.categoryFilter.value)
       if (cashUi.subcategoryFilter.value) params.set('subcategoryId', cashUi.subcategoryFilter.value)
       if (cashUi.sessionFilter.value) params.set('sessionId', cashUi.sessionFilter.value)
       if (cashUi.search.value.trim()) params.set('q', cashUi.search.value.trim())
-      const url = '/cash-register/days/' + encodeURIComponent(dayId) + '/entries?' + params.toString()
+      return '/cash-register/days/' + encodeURIComponent(dayId) + '/entries?' + params.toString()
+    }
+
+    function renderCashEntryPagination() {
+      const register = state.cashRegister
+      const page = register.entryPage
+      const busy = Boolean(register.entriesRequest)
+      const matchesFilters = page?.filterUrl === cashEntriesFilterUrl(register.selectedDayId)
+      cashUi.entryPagination.hidden = !page && !register.entriesError
+      cashUi.nextPage.hidden = Boolean(page && !page.nextCursor)
+      cashUi.nextPage.disabled = busy || Boolean(page && !matchesFilters)
+      cashUi.nextPage.textContent = busy ? 'Cargando...' : register.entriesError && !page ? 'Reintentar' : 'Ver más'
+      cashUi.entryList.setAttribute('aria-busy', String(busy))
+      cashUi.entryPageInfo.textContent = page ? (register.entries.length ? 'Mostrando ' + register.entries.length + ' movimientos' : 'Sin movimientos') : ''
+    }
+
+    function resetCashEntryPage() {
+      const register = state.cashRegister
+      register.entries = []
+      register.entryPage = null
+      register.entriesError = false
+      register.entriesRequest = null
+      cashUi.entryList.innerHTML = register.selectedDayId ? '<div class="cash-inline-state" role="status">Cargando movimientos...</div>' : ''
+      renderCashEntryPagination()
+    }
+
+    function loadCashEntries(options = {}) {
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      const dayId = register.selectedDayId
+      if (!dayId) return
+      const filterUrl = cashEntriesFilterUrl(dayId)
       const revision = register.revision
-      if (register.entriesRequest?.url === url && register.entriesRequest.revision === revision) return register.entriesRequest.promise
-      if (!options.append && !options.preserve) cashUi.entryList.innerHTML = '<div class="cash-inline-state">Cargando movimientos...</div>'
+      const active = register.entriesRequest
+      if (active?.filterUrl === filterUrl && active.revision === revision) return active.promise
+      const page = register.entryPage?.filterUrl === filterUrl ? register.entryPage : null
+      const append = Boolean(options.append && page)
+      if (append && !page.nextCursor) return
+      const count = append ? cashEntryAdditionalSize : page ? Math.max(cashEntryInitialSize, register.entries.length) : cashEntryInitialSize
+      if (!page) resetCashEntryPage()
+      register.entriesError = false
       const isCurrent = () => cashRegisterScopeIsCurrent(register, scope) && register.entriesRequest?.promise === promise &&
-        dayId === register.selectedDayId && revision === register.revision
-      const promise = getJson(url).then((page) => {
+        dayId === register.selectedDayId && revision === register.revision && filterUrl === cashEntriesFilterUrl(dayId)
+      const promise = (async () => {
+        const entries = []
+        let cursor = append ? page.nextCursor : null
+        do {
+          const [path, query] = filterUrl.split('?')
+          const params = new URLSearchParams(query)
+          params.set('limit', String(Math.min(100, count - entries.length)))
+          if (cursor) params.set('cursor', cursor)
+          const result = await getJson(path + '?' + params.toString())
+          if (!isCurrent()) return null
+          const batch = result.entries || []
+          entries.push(...batch)
+          const nextCursor = result.nextCursor || null
+          if (!batch.length || nextCursor === cursor) return { entries, nextCursor: null }
+          cursor = nextCursor
+        } while (cursor && entries.length < count)
+        return { entries, nextCursor: cursor }
+      })().then((result) => {
+        if (!result) return false
         if (!isCurrent()) return false
-        state.cashRegister.entries = options.append ? state.cashRegister.entries.concat(page.entries || []) : (page.entries || [])
-        state.cashRegister.nextCursor = page.nextCursor || null
+        const combined = append ? register.entries.concat(result.entries) : result.entries
+        register.entries = [...new Map(combined.map((entry) => [entry.id, entry])).values()]
+        register.entryPage = { filterUrl, nextCursor: result.nextCursor }
         renderCashEntries()
         return true
       }).catch((error) => {
         if (!isCurrent()) return false
-        if (options.preserve) showCrmToast(error.message, 'error')
+        register.entriesError = true
+        if (page) showCrmToast(error.message, 'error')
         else cashUi.entryList.innerHTML = '<div class="cash-inline-state error">' + escapeHtml(error.message) + '</div>'
         register.loadedAt = 0
         return false
       }).finally(() => {
-        if (register.entriesRequest?.promise === promise) register.entriesRequest = null
+        if (register.entriesRequest?.promise !== promise) return
+        register.entriesRequest = null
+        if (cashRegisterScopeIsCurrent(register, scope)) renderCashEntryPagination()
       })
-      register.entriesRequest = { url, revision, promise }
+      register.entriesRequest = { filterUrl, revision, promise }
+      renderCashEntryPagination()
       return promise
     }
 
@@ -1570,11 +1937,21 @@ export const cashRegisterScript = `
       const register = state.cashRegister
       const scope = cashRegisterScopeKey()
       const revision = register.revision
-      state.cashRegister.selectedDayId = dayId
-      const result = await getJson(cashScoped('/cash-register/days/' + encodeURIComponent(dayId) + '/summary'))
-      if (!cashRegisterScopeIsCurrent(register, scope) || revision !== register.revision || dayId !== register.selectedDayId) return false
-      renderCashSummary(result.day, result.summary, result.sessions)
-      return loadCashEntries(options)
+      if (register.selectedDayId !== dayId) {
+        register.selectedDayId = dayId
+        resetCashEntryPage()
+      }
+      const isCurrent = () => cashRegisterScopeIsCurrent(register, scope) && revision === register.revision && dayId === register.selectedDayId
+      try {
+        const result = await getJson(cashScoped('/cash-register/days/' + encodeURIComponent(dayId) + '/summary'))
+        if (!isCurrent()) return false
+        renderCashSummary(result.day, result.summary, result.sessions)
+        return loadCashEntries(options)
+      } catch (error) {
+        if (!isCurrent()) return false
+        if (!register.entryPage) cashUi.entryList.innerHTML = '<div class="cash-inline-state error">' + escapeHtml(error.message) + '</div>'
+        throw error
+      }
     }
 
     function cashIsoDate(date) {
@@ -1667,11 +2044,13 @@ export const cashRegisterScript = `
       state.cashRegister.periodPage = result.page || 1
       state.cashRegister.periodTotalPages = result.totalPages || 1
       cashUi.periodExpenseCount.textContent = String(result.total || 0) + ((result.total || 0) === 1 ? ' movimiento' : ' movimientos')
-      cashUi.periodExpenseList.innerHTML = entries.length ? entries.map((entry) => {
+      cashUi.periodExpenseList.innerHTML = entries.length ? '<div class="cash-table-scroll" tabindex="0" role="region" aria-label="Gastos del per&iacute;odo"><table class="cash-day-table cash-period-table"><thead><tr><th scope="col">Fecha</th><th scope="col">Concepto</th><th scope="col">Categor&iacute;a</th><th scope="col">Medio</th><th scope="col">Importe</th></tr></thead><tbody>' + entries.map((entry) => {
         const isReversal = entry.type === 'REVERSAL'
         const title = entry.description || entry.observation || 'Gasto sin descripción'
-        return '<article class="cash-period-expense-row' + (isReversal ? ' reversal' : '') + '"><div><strong>' + escapeHtml(title) + '</strong><br><small>' + escapeHtml(entry.expenseCategoryName || 'Otros') + (entry.expenseSubcategoryName ? ' / ' + escapeHtml(entry.expenseSubcategoryName) : '') + '</small></div><small>' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + '</small><small>' + escapeHtml(cashDate(entry.effectiveAt)) + '</small><strong>' + (isReversal ? '+' : '−') + cashMoney(entry.amount) + '</strong></article>'
-      }).join('') : '<div class="cash-inline-state">No hay gastos para estos filtros.</div>'
+        const direction = isReversal ? 'inflow' : 'outflow'
+        const icon = isReversal ? '${cashDayIcon('refresh')}' : '${cashDayIcon('outgoing')}'
+        return '<tr class="cash-period-expense-row' + (isReversal ? ' reversal' : '') + '"><td><small>' + escapeHtml(cashDate(entry.effectiveAt)) + '</small></td><td><div class="cash-day-labeled-icon"><span class="cash-day-icon ' + direction + '">' + icon + '</span><div><strong>' + escapeHtml(title) + '</strong>' + (isReversal ? '<small>Reversi&oacute;n de gasto</small>' : '') + '</div></div></td><td>' + escapeHtml(entry.expenseCategoryName || 'Otros') + (entry.expenseSubcategoryName ? '<br><small>' + escapeHtml(entry.expenseSubcategoryName) + '</small>' : '') + '</td><td><span class="cash-entry-chip">' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + '</span></td><td class="cash-entry-amount ' + direction + '">' + (isReversal ? '+ ' : '− ') + escapeHtml(cashMoney(entry.amount)) + '</td></tr>'
+      }).join('') + '</tbody></table></div>' : '<div class="cash-inline-state">No hay gastos para estos filtros.</div>'
       cashUi.periodPageInfo.textContent = 'Página ' + state.cashRegister.periodPage + ' de ' + state.cashRegister.periodTotalPages
       cashUi.periodPrevious.disabled = state.cashRegister.periodPage <= 1
       cashUi.periodNext.disabled = state.cashRegister.periodPage >= state.cashRegister.periodTotalPages
@@ -1714,6 +2093,7 @@ export const cashRegisterScript = `
 
     function setProfessionalPeriodPreset(preset) {
       state.cashRegister.professionalPeriodPreset = preset
+      cashUi.professionalPeriodDates.hidden = preset !== 'custom'
       document.querySelectorAll('[data-cash-professional-preset]').forEach((button) => button.classList.toggle('active', button.dataset.cashProfessionalPreset === preset))
       if (preset !== 'custom') {
         const dates = cashPeriodDates(preset)
@@ -1756,24 +2136,25 @@ export const cashRegisterScript = `
       return '<div class="cash-professional-services"><div class="cash-professional-services-head"><span>Fecha</span><span>Servicio</span><span>Turno / cliente</span><span>Forma de c&aacute;lculo</span><span>Importe</span></div>' + services.map((service) => '<div class="cash-professional-service-row"><span>' + escapeHtml(cashDate(professionalSettlementEntryDate(service))) + '</span><strong>' + escapeHtml(service.appointment?.service?.name || 'Servicio') + '</strong><span>' + escapeHtml((service.appointment?.startAt ? cashDate(service.appointment.startAt) : '—') + ' · ' + (service.appointment?.customer?.name || 'Cliente')) + '</span><span>' + professionalRuleLabel(service) + '</span><strong>' + escapeHtml(cashMoney(service.amount)) + '</strong></div>').join('') + '</div>'
     }
 
-    function settlementBalanceClass(value) {
-      const amount = Number(value || 0)
-      return amount < 0 ? 'negative' : amount > 0 ? 'positive' : ''
-    }
-
     function professionalSettlementRow(item) {
       const expanded = state.cashRegister.professionalExpandedIds.has(item.id)
       const currentBalance = Number(item.currentBalance || 0)
       const periodBalance = Number(item.periodBalance || 0)
+      const initial = Array.from(String(item.name || '').trim())[0] || '?'
       const status = item.archivedAt
         ? '<small class="cash-professional-status former">Desvinculado</small>'
         : (!item.isActive ? '<small class="cash-professional-status">En pausa</small>' : '')
-      return '<div class="cash-professional-summary-row"><button class="cash-professional-toggle" type="button" data-professional-settlement-toggle="' + escapeHtml(item.id) + '" aria-expanded="' + expanded + '" aria-label="' + (expanded ? 'Ocultar' : 'Ver') + ' servicios de ' + escapeHtml(item.name) + '">' + (expanded ? '⌄' : '›') + '</button><strong class="cash-professional-name">' + escapeHtml(item.name) + status + '</strong><span>' + Number(item.completedServices || 0) + '</span><span>' + escapeHtml(cashMoney(item.periodEarned)) + '</span><span>' + escapeHtml(cashMoney(item.periodPaid)) + '</span><strong class="cash-professional-period-balance ' + settlementBalanceClass(periodBalance) + '">' + escapeHtml(cashMoney(periodBalance)) + '</strong><strong class="cash-professional-current-balance ' + settlementBalanceClass(currentBalance) + '">' + escapeHtml(cashMoney(currentBalance)) + (currentBalance < 0 ? '<small>a favor</small>' : '') + '</strong></div>' + renderProfessionalServiceDetails(item)
+      const identity = '<span class="cash-professional-identity"><span class="cash-professional-avatar" data-tone="' + (initial.codePointAt(0) % 4) + '" aria-hidden="true">' + escapeHtml(initial.toLocaleUpperCase('es-AR')) + '</span><span>' + escapeHtml(item.name) + status + '</span></span>'
+      const payment = canManageProfessionalPayments() ? '<td><button class="secondary cash-professional-pay" type="button" data-professional-settlement-pay="' + escapeHtml(item.id) + '">${cashDayIcon('receipt')}Pagar</button></td>' : ''
+      return '<tr class="cash-professional-summary-row"><td><button class="cash-professional-toggle" type="button" data-professional-settlement-toggle="' + escapeHtml(item.id) + '" aria-expanded="' + expanded + '" aria-label="' + (expanded ? 'Ocultar' : 'Ver') + ' servicios de ' + escapeHtml(item.name) + '">' + (expanded ? '⌄' : '›') + '</button></td><td class="cash-professional-name">' + identity + '</td><td>' + Number(item.completedServices || 0) + '</td><td>' + escapeHtml(cashMoney(item.periodEarned)) + '</td><td>' + escapeHtml(cashMoney(item.periodPaid)) + '</td><td class="cash-professional-period-balance">' + escapeHtml(cashMoney(periodBalance)) + '</td><td class="cash-professional-current-balance">' + escapeHtml(cashMoney(currentBalance)) + (currentBalance < 0 ? '<small> a favor</small>' : '') + '</td>' + payment + '</tr>' + (expanded ? '<tr><td class="cash-professional-services-cell" colspan="' + (payment ? '8' : '7') + '">' + renderProfessionalServiceDetails(item) + '</td></tr>' : '')
     }
 
     function professionalSettlementGroup(title, description, items, kind, head) {
       if (!items.length) return ''
-      return '<section class="cash-professional-settlement-group ' + kind + '"><div class="cash-professional-group-heading"><strong>' + title + '</strong><span>' + description + '</span></div>' + head + items.map((item) => professionalSettlementRow(item)).join('') + '</section>'
+      const content = '<table class="cash-professional-summary-table"><caption class="cash-visually-hidden">' + title + '. ' + description + '</caption><thead>' + head + '</thead><tbody>' + items.map((item) => professionalSettlementRow(item)).join('') + '</tbody></table>'
+      return kind === 'former'
+        ? '<details class="cash-professional-former cash-professional-settlement-group former"' + (state.cashRegister.professionalFormerOpen ? ' open' : '') + '><summary>Profesionales desvinculados (' + items.length + ')</summary>' + content + '</details>'
+        : '<section class="cash-professional-settlement-group current">' + content + '</section>'
     }
 
     function renderProfessionalSettlements(result) {
@@ -1781,13 +2162,23 @@ export const cashRegisterScript = `
       const items = result.items || []
       const currentItems = items.filter((item) => !item.archivedAt)
       const formerItems = items.filter((item) => Boolean(item.archivedAt))
+      if (cashUi.professionalCount) {
+        cashUi.professionalCount.textContent = currentItems.length + (currentItems.length === 1 ? ' profesional' : ' profesionales')
+        cashUi.professionalCount.hidden = false
+      }
       const currentProfessionalId = cashUi.professionalPaymentProfessional.value
-      const option = (item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.name) + (item.archivedAt ? ' — Desvinculado' : (!item.isActive ? ' — En pausa' : '')) + '</option>'
-      const currentOptions = currentItems.length ? '<optgroup label="Equipo actual">' + currentItems.map(option).join('') + '</optgroup>' : ''
-      const formerOptions = formerItems.length ? '<optgroup label="Profesionales desvinculados">' + formerItems.map(option).join('') + '</optgroup>' : ''
-      cashUi.professionalPaymentProfessional.innerHTML = currentOptions + formerOptions || '<option value="">Sin profesionales</option>'
-      if (items.some((item) => item.id === currentProfessionalId)) cashUi.professionalPaymentProfessional.value = currentProfessionalId
-      const head = '<div class="cash-professional-summary-head"><span></span><strong>Profesional</strong><span>Realizados</span><span>Generado per&iacute;odo</span><span>Pagos/adelantos per&iacute;odo</span><span>Saldo del per&iacute;odo</span><strong class="cash-professional-current-balance">Saldo actual<small>Hist&oacute;rico · no cambia con el filtro</small></strong></div>'
+      const choices = state.cashRegister.professionalFilterOptions?.length ? state.cashRegister.professionalFilterOptions : items
+      const option = (item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.name) + (item.archivedAt ? ' — Desvinculado' : (item.isActive === false ? ' — En pausa' : '')) + '</option>'
+      const currentChoices = choices.filter((item) => !item.archivedAt)
+      const formerChoices = choices.filter((item) => item.archivedAt)
+      const currentOptions = currentChoices.length ? '<optgroup label="Equipo actual">' + currentChoices.map(option).join('') + '</optgroup>' : ''
+      const formerOptions = formerChoices.length ? '<optgroup label="Profesionales desvinculados">' + formerChoices.map(option).join('') + '</optgroup>' : ''
+      cashUi.professionalPaymentProfessional.innerHTML = '<option value="">Eleg&iacute; un profesional</option>' + currentOptions + formerOptions
+      if (choices.some((item) => item.id === currentProfessionalId)) cashUi.professionalPaymentProfessional.value = currentProfessionalId
+      state.cashRegister.professionalBalances ||= {}
+      for (const item of items) state.cashRegister.professionalBalances[item.id] = Number(item.currentBalance || 0)
+      syncProfessionalPaymentBalance()
+      const head = '<tr class="cash-professional-summary-head"><th scope="col" aria-label="Detalle"></th><th scope="col">Profesional</th><th scope="col">Realizados</th><th scope="col">Generado per&iacute;odo</th><th scope="col">Pagos/adelantos per&iacute;odo</th><th scope="col">Saldo del per&iacute;odo</th><th scope="col" title="Hist&oacute;rico · no cambia con el filtro">Saldo actual<small>Hist&oacute;rico</small></th>' + (canManageProfessionalPayments() ? '<th scope="col">Acciones</th>' : '') + '</tr>'
       cashUi.professionalSummary.innerHTML = items.length
         ? professionalSettlementGroup('Equipo actual', 'Activos y temporalmente en pausa', currentItems, 'current', head) +
           professionalSettlementGroup('Profesionales desvinculados', 'Se conservan por historial y saldos pendientes', formerItems, 'former', head)
@@ -1796,9 +2187,14 @@ export const cashRegisterScript = `
     function renderProfessionalSettlementEntries(result) {
       const entries = result.items || []
       const labels = { EARNING: 'Servicio realizado', PAYMENT: 'Pago', ADVANCE: 'Adelanto', ADJUSTMENT: 'Ajuste', REVERSAL: 'Reversión' }
-      const head = '<div class="cash-professional-movement-head"><span>Fecha</span><span>Profesional</span><span>Tipo</span><span>Servicio / detalle</span><span>Cliente</span><span>Importe</span></div>'
+      const head = '<table class="cash-professional-movements-table"><thead><tr><th scope="col">Fecha</th><th scope="col">Profesional</th><th scope="col">Tipo</th><th scope="col">Servicio / detalle</th><th scope="col">Cliente</th><th scope="col">Importe</th></tr></thead><tbody>'
       cashUi.professionalEntries.innerHTML = entries.length
-        ? head + entries.map((entry) => '<div class="cash-professional-movement-row"><span>' + escapeHtml(cashDate(professionalSettlementEntryDate(entry))) + '</span><strong>' + escapeHtml(entry.professional?.name || 'Profesional') + '</strong><span>' + escapeHtml(labels[entry.type] || entry.type) + '</span><span>' + escapeHtml(entry.appointment?.service?.name || entry.description || '—') + (entry.treasuryMovementId ? ' · Tesorer&iacute;a' : '') + '</span><span>' + escapeHtml(entry.appointment?.customer?.name || '—') + '</span><strong class="' + (entry.direction === 'DEBIT' ? 'negative' : '') + '">' + (entry.direction === 'DEBIT' ? '−' : '+') + escapeHtml(cashMoney(entry.amount)) + '</strong></div>').join('')
+        ? head + entries.map((entry) => {
+          const kind = ({ EARNING: 'earning', PAYMENT: 'payment', ADVANCE: 'advance', ADJUSTMENT: 'adjustment', REVERSAL: 'reversal' })[entry.type] || 'other'
+          const icon = entry.type === 'EARNING' ? '${cashDayIcon('check')}' : '${cashDayIcon('receipt')}'
+          const type = '<span class="cash-settlement-type ' + kind + '">' + icon + escapeHtml(labels[entry.type] || entry.type) + '</span>'
+          return '<tr><td>' + escapeHtml(cashDate(professionalSettlementEntryDate(entry))) + '</td><td><strong>' + escapeHtml(entry.professional?.name || 'Profesional') + '</strong></td><td>' + type + '</td><td>' + escapeHtml(entry.appointment?.service?.name || entry.description || '—') + (entry.treasuryMovementId ? ' · Tesorer&iacute;a' : '') + '</td><td>' + escapeHtml(entry.appointment?.customer?.name || '—') + '</td><td><strong class="' + (entry.direction === 'DEBIT' ? 'negative' : 'cash-settlement-credit') + '">' + (entry.direction === 'DEBIT' ? '−' : '+') + escapeHtml(cashMoney(entry.amount)) + '</strong></td></tr>'
+        }).join('') + '</tbody></table>'
         : '<div class="cash-inline-state">Todav&iacute;a no hay movimientos profesionales en el per&iacute;odo.</div>'
       state.cashRegister.professionalPage = Number(result.page || 1)
       state.cashRegister.professionalTotalPages = Number(result.totalPages || 1)
@@ -1851,6 +2247,7 @@ export const cashRegisterScript = `
       cashUi.professionalView.querySelector('.cash-professional-movements').hidden = limited
       fullSummaryPanel.hidden = limited
       cashUi.professionalPaymentPanel.hidden = staff || !canUseCashPermission('canManageProfessionalSettlements')
+      if (cashUi.professionalPaymentOpen) cashUi.professionalPaymentOpen.hidden = staff || !canUseCashPermission('canManageProfessionalSettlements')
       const heading = cashUi.professionalView.querySelector('.cash-professional-heading')
       heading.querySelector('h3').textContent = limited ? 'Actividad de profesionales de hoy' : (staff && state.currentUser.staffProfile !== 'SECRETARY' ? 'Mis liquidaciones' : 'Liquidaciones a profesionales')
       heading.querySelector('p').textContent = limited ? 'Servicios realizados y facturación de hoy. No incluye pagos ni saldos.' : 'Consultá servicios realizados por período sin perder de vista el saldo histórico.'
@@ -1892,10 +2289,18 @@ export const cashRegisterScript = `
       cashUi.professionalEntries.innerHTML = '<div class="cash-inline-state">Cargando movimientos...</div>'
       cashUi.professionalPaymentPanel.hidden = staff || !canUseCashPermission('canManageProfessionalSettlements')
       try {
-        const [summary, entries] = await Promise.all([
-          getJson(cashScoped('/professional-settlements/summary?' + params.toString())),
-          getJson(cashScoped('/professional-settlements/entries?' + entryParams.toString()))
-        ])
+        const summaryUrl = cashScoped('/professional-settlements/summary?' + params.toString())
+        const entriesUrl = cashScoped('/professional-settlements/entries?' + entryParams.toString())
+        const register = state.cashRegister
+        const key = requestScope + ':' + summaryUrl + ':' + entriesUrl
+        let pending = register.professionalLoad
+        if (!pending || pending.key !== key) {
+          const promise = Promise.all([getJson(summaryUrl), getJson(entriesUrl)]).finally(() => {
+            if (register.professionalLoad?.promise === promise) register.professionalLoad = null
+          })
+          pending = register.professionalLoad = { key, promise }
+        }
+        const [summary, entries] = await pending.promise
         if (requestId !== state.cashRegister.professionalRequestId || requestScope !== state.businessId + ':' + state.currentUser?.id) return
         state.cashRegister.professionalFilterOptions = Array.isArray(summary.filterOptions) ? summary.filterOptions : []
         renderProfessionalSettlementFilter()
@@ -1909,6 +2314,91 @@ export const cashRegisterScript = `
       }
     }
 
+    function canManageProfessionalPayments() {
+      return state.currentUser?.role !== 'STAFF' && canUseCashPermission('canManageProfessionalSettlements')
+    }
+
+    function professionalPaymentDraft() {
+      return JSON.stringify([cashUi.professionalPaymentProfessional.value, cashUi.professionalPaymentType.value,
+        cashUi.professionalPaymentAmount.value, cashUi.professionalPaymentSource.value, cashUi.professionalPaymentMethod.value,
+        document.getElementById('cash-professional-payment-date').value, cashUi.professionalPaymentObservation.value])
+    }
+
+    const professionalPaymentDrawer = createCrmDrawer({
+      backdrop: cashUi.professionalPaymentDrawer,
+      panel: cashUi.professionalPaymentPanel,
+      closeButton: cashUi.professionalPaymentClose,
+      isTopmost: () => els.confirmationDialog.hidden,
+      beforeClose: async () => {
+        if (state.cashRegister.professionalPaymentOperation) return false
+        if (cashUi.professionalPaymentForm.dataset.initial === professionalPaymentDraft()) return true
+        return requestCrmConfirmation('Hay cambios sin guardar en este pago. ¿Querés descartarlos?', {
+          title: 'Descartar pago sin guardar', confirmLabel: 'Descartar cambios', danger: false
+        })
+      }
+    })
+
+    function syncProfessionalPaymentBalance() {
+      const amount = state.cashRegister.professionalBalances?.[cashUi.professionalPaymentProfessional.value]
+      cashUi.professionalPaymentBalance.textContent = amount === undefined ? '—' : cashMoney(amount)
+    }
+
+    async function selectProfessionalPayment(suggestAmount = true) {
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      const epoch = register.professionalBalanceEpoch || 0
+      const draftRevision = register.professionalPaymentDraftRevision || 0
+      const id = cashUi.professionalPaymentProfessional.value
+      syncProfessionalPaymentBalance()
+      if (id && register.professionalBalances?.[id] === undefined) {
+        const requests = register.professionalBalanceRequests ||= {}
+        const params = new URLSearchParams({ ...professionalPeriodDates(), professionalId: id })
+        const pending = requests[id] ||= getJson(cashScoped('/professional-settlements/summary?' + params.toString()))
+        try {
+          const result = await pending
+          if (!cashRegisterScopeIsCurrent(register, scope) || epoch !== (register.professionalBalanceEpoch || 0)) return
+          register.professionalBalances ||= {}
+          for (const item of result.items || []) register.professionalBalances[item.id] = Number(item.currentBalance || 0)
+        } catch (error) {
+          if (cashRegisterScopeIsCurrent(register, scope) && id === cashUi.professionalPaymentProfessional.value) {
+            cashUi.professionalPaymentFeedback.textContent = error.message
+            cashUi.professionalPaymentFeedback.className = 'cash-feedback error'
+          }
+        } finally {
+          if (requests[id] === pending) delete requests[id]
+        }
+      }
+      if (!cashRegisterScopeIsCurrent(register, scope) || epoch !== (register.professionalBalanceEpoch || 0) || id !== cashUi.professionalPaymentProfessional.value) return
+      syncProfessionalPaymentBalance()
+      if (suggestAmount && draftRevision === (register.professionalPaymentDraftRevision || 0)) {
+        const balance = Number(register.professionalBalances?.[id] || 0)
+        cashUi.professionalPaymentAmount.value = balance > 0 ? String(balance) : ''
+      }
+    }
+
+    async function openProfessionalPayment(professionalId = '', trigger = cashUi.professionalPaymentOpen) {
+      if (!canManageProfessionalPayments() || state.cashRegister.professionalPaymentOperation) return
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      if (professionalPaymentDrawer.isOpen() && !(await professionalPaymentDrawer.close())) return
+      if (!cashRegisterScopeIsCurrent(register, scope)) return
+      const form = cashUi.professionalPaymentForm
+      form.reset()
+      delete form.dataset.key
+      cashUi.professionalPaymentType.value = 'PAYMENT'
+      cashUi.professionalPaymentProfessional.value = professionalId
+      cashUi.professionalPaymentFeedback.textContent = ''
+      cashUi.professionalPaymentFeedback.className = 'cash-feedback'
+      ensureFinancialDateDefaults()
+      syncProfessionalPaymentSource()
+      cashUi.professionalPaymentPanel.hidden = false
+      form.dataset.initial = professionalPaymentDraft()
+      const draftRevision = register.professionalPaymentDraftRevision || 0
+      professionalPaymentDrawer.open(trigger)
+      await selectProfessionalPayment(Boolean(professionalId))
+      if (cashRegisterScopeIsCurrent(register, scope) && professionalPaymentDrawer.isOpen() && draftRevision === (register.professionalPaymentDraftRevision || 0)) form.dataset.initial = professionalPaymentDraft()
+    }
+
     function syncProfessionalPaymentSource() {
       const treasury = cashUi.professionalPaymentSource.value === 'TREASURY'
       if (treasury) selectDefaultPaymentMethod(cashUi.professionalPaymentMethod, 'CASH')
@@ -1917,16 +2407,43 @@ export const cashRegisterScript = `
       dateInput.disabled = !treasury
       dateInput.max = cashBusinessIsoDate(new Date())
       if (!dateInput.value) dateInput.value = cashBusinessIsoDate(new Date())
+      const payment = cashUi.professionalPaymentType.value !== 'ADVANCE'
+      cashUi.professionalPaymentSubmit.textContent = payment ? 'Confirmar pago' : 'Confirmar adelanto'
+      cashUi.professionalPaymentForm.querySelectorAll('[data-professional-payment-type]').forEach((button) => {
+        button.setAttribute('aria-pressed', String(button.dataset.professionalPaymentType === cashUi.professionalPaymentType.value))
+      })
+      const method = cashUi.professionalPaymentMethod.options?.[cashUi.professionalPaymentMethod.selectedIndex]?.dataset.kind || cashUi.professionalPaymentMethod.value
+      cashUi.professionalPaymentContext.textContent = treasury
+        ? 'El importe se descontará del efectivo disponible en Tesorería y se registrará en la liquidación del profesional.'
+        : method === 'CASH'
+          ? 'Caja traspasa el efectivo a Tesorería y allí registra el pago al profesional con la fecha actual del negocio.'
+          : 'El movimiento se registrará en Caja como Liquidaciones profesionales y actualizará el saldo del profesional.'
     }
 
     async function submitProfessionalPayment(event) {
       event.preventDefault()
+      if (!canManageProfessionalPayments() || state.cashRegister.professionalPaymentOperation) return
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      const isCurrent = () => cashRegisterScopeIsCurrent(register, scope)
       const treasury = cashUi.professionalPaymentSource.value === 'TREASURY'
-      const session = state.cashRegister.current?.session
+      const session = register.current?.session
       if (!treasury && !session?.id) { cashUi.professionalPaymentFeedback.textContent = 'Abrí una sesión de Caja para registrar el pago.'; cashUi.professionalPaymentFeedback.className = 'cash-feedback error'; return }
       const form = cashUi.professionalPaymentForm
       if (!form.dataset.key) form.dataset.key = crypto.randomUUID()
-      const payload = {
+      const amount = Number(cashUi.professionalPaymentAmount.value)
+      if (!cashUi.professionalPaymentProfessional.value || !Number.isSafeInteger(amount) || amount <= 0) {
+        cashUi.professionalPaymentFeedback.textContent = 'Elegí un profesional e ingresá un importe mayor a cero.'
+        cashUi.professionalPaymentFeedback.className = 'cash-feedback error'
+        return
+      }
+      const operation = register.professionalPaymentOperation = {}
+      const submit = cashUi.professionalPaymentSubmit
+      const disabledFields = Array.from(form.querySelectorAll('input, select, textarea, [data-professional-payment-type]')).map((field) => [field, field.disabled])
+      setButtonLoading(submit, true, 'Registrando...')
+      let confirmed = false
+      try {
+        const payload = {
         professionalId: cashUi.professionalPaymentProfessional.value,
         type: cashUi.professionalPaymentType.value,
         amount: Number(cashUi.professionalPaymentAmount.value),
@@ -1934,19 +2451,35 @@ export const cashRegisterScript = `
         ...(treasury ? { effectiveDate: document.getElementById('cash-professional-payment-date').value } : {}),
         ...(treasury ? { idempotencyKey: form.dataset.key } : { idempotencyKey: form.dataset.key, cashSessionId: session.id, ...configuredPaymentLine(cashUi.professionalPaymentMethod, Number(cashUi.professionalPaymentAmount.value)) }),
         ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {})
-      }
-      try {
+        }
+        for (const [field] of disabledFields) field.disabled = true
         await getJson(treasury ? '/treasury/pay-professional' : '/professional-settlements/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-        await loadCashRegister({ preserve: true })
-        await loadProfessionalSettlements()
-        if (treasury || payload.method === 'CASH') await Promise.all([loadTreasury(), loadTreasuryConsolidated()])
+        confirmed = true
+        if (!isCurrent()) return
         delete form.dataset.key
         form.reset()
         ensureFinancialDateDefaults()
         syncProfessionalPaymentSource()
-        cashUi.professionalPaymentFeedback.textContent = 'Pago registrado.'
-        cashUi.professionalPaymentFeedback.className = 'cash-feedback success'
-      } catch (error) { cashUi.professionalPaymentFeedback.textContent = error.message; cashUi.professionalPaymentFeedback.className = 'cash-feedback error' }
+        form.dataset.initial = professionalPaymentDraft()
+        await professionalPaymentDrawer.close(true)
+        if (!isCurrent()) return
+        showCrmToast(payload.type === 'ADVANCE' ? 'Adelanto registrado.' : 'Pago registrado.', 'success')
+        invalidateCashRegister()
+        register.professionalBalanceEpoch = (register.professionalBalanceEpoch || 0) + 1
+        register.professionalBalances = {}
+        await loadProfessionalSettlements({ page: register.professionalPage })
+      } catch (error) {
+        if (!isCurrent()) return
+        if (confirmed) showCrmToast('El pago fue registrado. Actualizá las liquidaciones para ver el saldo.', 'success')
+        else { cashUi.professionalPaymentFeedback.textContent = error.message; cashUi.professionalPaymentFeedback.className = 'cash-feedback error' }
+      } finally {
+        if (register.professionalPaymentOperation === operation) register.professionalPaymentOperation = null
+        if (isCurrent()) {
+          for (const [field, disabled] of disabledFields) field.disabled = disabled
+          setButtonLoading(submit, false)
+          syncProfessionalPaymentSource()
+        }
+      }
     }
     function renderTreasuryClassificationOptions() {
       const kind = document.getElementById('cash-treasury-outflow-kind').value
@@ -1970,32 +2503,88 @@ export const cashRegisterScript = `
       category.required = true
     }
 
-    async function loadTreasury(options = {}) {
-      if (state.currentUser?.role === 'STAFF') return
+    function treasuryMovementDraft() {
+      return JSON.stringify(['account', 'kind', 'category', 'subcategory', 'counterparty', 'description', 'amount', 'date'].map((field) => document.getElementById('cash-treasury-outflow-' + field).value))
+    }
+
+    const treasuryMovementDrawer = createCrmDrawer({
+      backdrop: document.getElementById('cash-treasury-movement-drawer'),
+      panel: document.getElementById('cash-treasury-movement-panel'),
+      closeButton: document.getElementById('cash-treasury-movement-close'),
+      isTopmost: () => els.confirmationDialog.hidden && document.getElementById('cash-treasury-counterparty-dialog').hidden,
+      beforeClose: () => {
+        if (state.cashRegister.treasuryMovementOperation) return false
+        if (document.getElementById('cash-treasury-outflow-form').dataset.initial === treasuryMovementDraft()) return true
+        return requestCrmConfirmation('Hay cambios sin guardar en este movimiento. ¿Querés descartarlos?', { title: 'Descartar movimiento sin guardar', confirmLabel: 'Descartar cambios', danger: false })
+      }
+    })
+
+    function openTreasuryMovement(trigger) {
+      if (state.currentUser?.role === 'STAFF' || state.cashRegister.treasuryMovementOperation || treasuryMovementDrawer.isOpen()) return
+      const form = document.getElementById('cash-treasury-outflow-form')
+      form.reset()
+      delete form.dataset.key
+      ensureFinancialDateDefaults()
+      renderTreasuryClassificationOptions()
+      document.getElementById('cash-treasury-outflow-feedback').textContent = ''
+      form.dataset.initial = treasuryMovementDraft()
+      treasuryMovementDrawer.open(trigger)
+    }
+
+    function treasuryFilterUrl() {
+      const filters = new URLSearchParams()
+      for (const [id, key] of [['kind', 'kind'], ['search', 'search'], ['category', 'expenseCategoryId'], ['subcategory', 'expenseSubcategoryId']]) {
+        const value = document.getElementById('cash-treasury-filter-' + id).value.trim()
+        if (value) filters.set(key, value)
+      }
+      return cashScoped('/treasury' + (filters.size ? '?' + filters.toString() : ''))
+    }
+
+    function treasuryMovementRows(entries) {
+      return entries.map((entry) => {
+              const correctionLabel = entry.correctionRole === 'REVERSAL' ? ' · Contrapartida' : entry.correctionRole === 'REPLACEMENT' ? ' · Fecha corregida' : entry.dateCorrected ? ' · Corregido' : ''
+              const canCorrectDate = !entry.correctionRole && !entry.dateCorrected && entry.kind !== 'DAILY_TRANSFER'
+              const action = canCorrectDate ? '<button class="secondary" type="button" data-treasury-correct-date="' + escapeHtml(entry.id) + '">Corregir fecha</button>' : '—'
+              const direction = entry.direction === 'OUTFLOW' ? 'outflow' : 'inflow'
+              const kindClass = entry.kind === 'DAILY_TRANSFER' ? ' internal' : ' ' + direction
+              return '<tr><td>' + escapeHtml(cashDate(entry.effectiveAt)) + '<br><small>Registrado: ' + escapeHtml(cashDate(entry.createdAt)) + '</small></td><td>' + escapeHtml(entry.accountName || '—') + '</td><td><span class="cash-entry-chip' + kindClass + '">' + escapeHtml((entry.kind === 'DAILY_TRANSFER' ? 'Traspaso interno' : entry.kind === 'PROFESSIONAL_PAYMENT' ? 'Pago profesional' : entry.kind === 'PROFESSIONAL_ADVANCE' ? 'Adelanto profesional' : entry.kind === 'INCOME' ? 'Ingreso' : entry.kind === 'EXPENSE' ? 'Gasto' : 'Retiro') + correctionLabel) + '</span></td><td>' + escapeHtml([entry.expenseCategoryName, entry.expenseSubcategoryName].filter(Boolean).join(' / ') || '—') + '</td><td>' + escapeHtml(entry.counterparty || '—') + '</td><td>' + escapeHtml(entry.description || '—') + (entry.correctionReason ? '<br><small>Motivo: ' + escapeHtml(entry.correctionReason) + '</small>' : '') + '</td><td class="cash-entry-amount ' + direction + '">' + (entry.direction === 'OUTFLOW' ? '− ' : '+ ') + escapeHtml(cashMoney(entry.amount)) + '</td><td>' + action + '</td></tr>'
+      }).join('')
+    }
+
+    function renderTreasuryMovements(append = false) {
+      const register = state.cashRegister
+      const list = register.treasuryList
+      const rows = document.getElementById('cash-treasury-entries')
+      const shown = list ? list.entries.slice(0, list.visibleCount) : []
+      if (append && list.renderedCount) rows.insertAdjacentHTML('beforeend', treasuryMovementRows(shown.slice(list.renderedCount)))
+      else rows.innerHTML = shown.length ? treasuryMovementRows(shown) : '<tr><td colspan="8">Todav&iacute;a no hay movimientos.</td></tr>'
+      if (list) list.renderedCount = shown.length
+      register.treasuryMovements = list?.entries || []
+    }
+
+    function renderTreasuryPagination() {
+      const register = state.cashRegister
+      const list = register.treasuryList
+      const busy = Boolean(register.treasuryRequest)
+      const more = document.getElementById('cash-treasury-next')
+      document.getElementById('cash-treasury-pagination').hidden = !list && !busy && !register.treasuryError
+      more.hidden = Boolean(list && list.visibleCount >= list.total)
+      more.disabled = busy
+      more.textContent = busy ? 'Cargando...' : !list && register.treasuryError ? 'Reintentar' : 'Ver más'
+      document.getElementById('cash-treasury-entries').setAttribute('aria-busy', String(busy))
+      document.getElementById('cash-treasury-page-info').textContent = list ? 'Mostrando ' + list.visibleCount + ' de ' + list.total + ' movimientos' : ''
+    }
+
+    function renderTreasuryAccounts(result) {
       const inactive = document.getElementById('cash-treasury-inactive')
       const balance = document.getElementById('cash-treasury-balance')
       const reserveCard = document.getElementById('cash-treasury-reserve-card')
       const operations = document.getElementById('cash-treasury-operations')
       const history = document.getElementById('cash-treasury-history-panel')
-      const feedback = document.getElementById('cash-treasury-feedback')
-      try {
-        const filters = new URLSearchParams()
-        const page = options.page || state.cashRegister.treasuryPage || 1
-        filters.set('page', String(page))
-        const categoryId = document.getElementById('cash-treasury-filter-category').value
-        const subcategoryId = document.getElementById('cash-treasury-filter-subcategory').value
-        const kind = document.getElementById('cash-treasury-filter-kind').value
-        const search = document.getElementById('cash-treasury-filter-search').value.trim()
-        if (kind) filters.set('kind', kind)
-        if (search) filters.set('search', search)
-        if (categoryId) filters.set('expenseCategoryId', categoryId)
-        if (subcategoryId) filters.set('expenseSubcategoryId', subcategoryId)
-        const result = await getJson(cashScoped('/treasury' + (filters.size ? '?' + filters.toString() : '')))
         const accounts = result.accounts || []
         const counterparties = result.counterparties || []
         state.cashRegister.treasuryAccounts = accounts
         state.cashRegister.treasuryCounterparties = counterparties
-        state.cashRegister.treasuryMovements = result.movements || []
         const cashAccount = accounts.find((item) => item.kind === 'CASH')
         inactive.hidden = accounts.length > 0
         reserveCard.hidden = true
@@ -2003,7 +2592,10 @@ export const cashRegisterScript = `
         history.hidden = accounts.length === 0
         balance.textContent = cashAccount ? cashMoney(cashAccount.balance) : ''
         document.getElementById('cash-treasury-account-grid').innerHTML = accounts.length
-          ? accounts.map((item) => '<article class="cash-treasury-account-card' + (item.isActive ? '' : ' inactive') + '"><span>' + escapeHtml(item.name) + '</span><strong>' + escapeHtml(cashMoney(item.balance)) + '</strong><small>' + escapeHtml(item.kind === 'CASH' ? 'Efectivo reservado' : item.kind === 'CARD' ? 'Tarjeta / posnet' : 'Transferencia / billetera') + (item.isActive ? '' : ' · Inactivo') + '</small></article>').join('')
+          ? accounts.map((item) => {
+              const icon = item.kind === 'CASH' ? '${cashDayIcon('wallet')}' : item.kind === 'CARD' ? '${cashDayIcon('receipt')}' : '${cashDayIcon('bank')}'
+              return '<article class="cash-treasury-account-card' + (item.kind === 'CASH' ? ' cash-account--cash' : '') + (item.isActive ? '' : ' inactive') + '"><div class="cash-day-labeled-icon"><span class="cash-day-icon">' + icon + '</span><span>' + escapeHtml(item.name) + '</span></div><strong>' + escapeHtml(cashMoney(item.balance)) + '</strong><small>' + escapeHtml(item.kind === 'CASH' ? 'Efectivo reservado' : item.kind === 'CARD' ? 'Tarjeta / posnet' : 'Transferencia / billetera') + (item.isActive ? '' : ' · Inactivo') + '</small></article>'
+            }).join('')
           : ''
         const accountSelect = document.getElementById('cash-treasury-outflow-account')
         const selectedAccount = accountSelect.value
@@ -2013,28 +2605,71 @@ export const cashRegisterScript = `
         const selectedCounterparty = counterpartySelect.value
         counterpartySelect.innerHTML = '<option value="">Sin destinatario</option>' + counterparties.filter((item) => item.isActive).map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.name) + '</option>').join('')
         if (counterparties.some((item) => item.id === selectedCounterparty && item.isActive)) counterpartySelect.value = selectedCounterparty
-        state.cashRegister.treasuryPage = result.page || 1
-        const pageInfo = document.getElementById('cash-treasury-page-info')
-        const total = Number(result.total || 0)
-        const pageSize = Number(result.pageSize || 20)
-        const first = total ? (state.cashRegister.treasuryPage - 1) * pageSize + 1 : 0
-        const last = Math.min(total, state.cashRegister.treasuryPage * pageSize)
-        pageInfo.textContent = total ? first + '–' + last + ' de ' + total + ' movimientos · Página ' + state.cashRegister.treasuryPage + ' de ' + result.totalPages : '0 movimientos'
-        document.getElementById('cash-treasury-previous').disabled = state.cashRegister.treasuryPage <= 1
-        document.getElementById('cash-treasury-next').disabled = state.cashRegister.treasuryPage >= result.totalPages
-        document.getElementById('cash-treasury-entries').innerHTML = (result.movements || []).length
-          ? result.movements.map((entry) => {
-              const correctionLabel = entry.correctionRole === 'REVERSAL' ? ' · Contrapartida' : entry.correctionRole === 'REPLACEMENT' ? ' · Fecha corregida' : entry.dateCorrected ? ' · Corregido' : ''
-              const canCorrectDate = !entry.correctionRole && !entry.dateCorrected && entry.kind !== 'DAILY_TRANSFER'
-              const action = canCorrectDate ? '<button class="secondary" type="button" data-treasury-correct-date="' + escapeHtml(entry.id) + '">Corregir fecha</button>' : '—'
-              return '<tr><td>' + escapeHtml(cashDate(entry.effectiveAt)) + '<br><small>Registrado: ' + escapeHtml(cashDate(entry.createdAt)) + '</small></td><td>' + escapeHtml(entry.accountName || '—') + '</td><td>' + escapeHtml((entry.kind === 'DAILY_TRANSFER' ? 'Traspaso interno' : entry.kind === 'PROFESSIONAL_PAYMENT' ? 'Pago profesional' : entry.kind === 'PROFESSIONAL_ADVANCE' ? 'Adelanto profesional' : entry.kind === 'INCOME' ? 'Ingreso' : entry.kind === 'EXPENSE' ? 'Gasto' : 'Retiro') + correctionLabel) + '</td><td>' + escapeHtml([entry.expenseCategoryName, entry.expenseSubcategoryName].filter(Boolean).join(' / ') || '—') + '</td><td>' + escapeHtml(entry.counterparty || '—') + '</td><td>' + escapeHtml(entry.description || '—') + (entry.correctionReason ? '<br><small>Motivo: ' + escapeHtml(entry.correctionReason) + '</small>' : '') + '</td><td>' + (entry.direction === 'OUTFLOW' ? '−' : '+') + escapeHtml(cashMoney(entry.amount)) + '</td><td>' + action + '</td></tr>'
-            }).join('')
-          : '<tr><td colspan="8">Todavía no hay movimientos.</td></tr>'
+    }
+
+    function loadTreasury(options = {}) {
+      if (state.currentUser?.role === 'STAFF') return
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      const filterUrl = treasuryFilterUrl()
+      const previous = register.treasuryList?.filterUrl === filterUrl ? register.treasuryList : null
+      if (register.treasuryRequest?.filterUrl === filterUrl && !options.refresh) return register.treasuryRequest.promise
+      const append = Boolean(options.append && previous)
+      const target = append ? Math.min(previous.total, previous.visibleCount + 10) : previous?.visibleCount || 5
+      if (append && target <= previous.entries.length) {
+        previous.visibleCount = target
+        renderTreasuryMovements(true)
+        renderTreasuryPagination()
+        return Promise.resolve(true)
+      }
+      if (!previous) {
+        register.treasuryList = null
+        register.treasuryMovements = []
+        document.getElementById('cash-treasury-entries').innerHTML = '<tr><td colspan="8">Cargando movimientos...</td></tr>'
+      }
+      register.treasuryError = false
+      const request = register.treasuryRequest = { filterUrl }
+      const feedback = document.getElementById('cash-treasury-feedback')
+      const isCurrent = () => cashRegisterScopeIsCurrent(register, scope) && register.treasuryRequest === request && filterUrl === treasuryFilterUrl()
+      request.promise = (async () => {
+        let page = append ? previous.nextPage : 1
+        const entries = append ? previous.entries.slice() : []
+        let total = append ? previous.total : 0
+        let totalPages = append ? previous.totalPages : 1
+        let accountResult
+        do {
+          const result = await getJson(filterUrl + (filterUrl.includes('?') ? '&' : '?') + 'page=' + page)
+          if (!isCurrent()) return false
+          accountResult ||= result
+          const seen = new Set(entries.map((entry) => entry.id))
+          const batch = result.movements || []
+          for (const entry of batch) if (!seen.has(entry.id)) { entries.push(entry); seen.add(entry.id) }
+          total = Number(result.total || 0)
+          totalPages = Number(result.totalPages || 1)
+          page += 1
+          if (!batch.length) break
+        } while (entries.length < target && page <= totalPages)
+        if (!isCurrent()) return false
+        register.treasuryList = { filterUrl, entries, total, totalPages, nextPage: page, visibleCount: Math.min(target, entries.length), renderedCount: append ? previous.renderedCount : 0 }
+        if (!append) renderTreasuryAccounts(accountResult)
+        renderTreasuryMovements(append)
         feedback.textContent = ''
-      } catch (error) {
+        feedback.className = 'cash-feedback'
+        return true
+      })().catch((error) => {
+        if (!isCurrent()) return false
+        register.treasuryError = true
         feedback.textContent = error.message
         feedback.className = 'cash-feedback error'
-      }
+        if (previous) showCrmToast(error.message, 'error')
+        return false
+      }).finally(() => {
+        if (register.treasuryRequest !== request) return
+        register.treasuryRequest = null
+        if (cashRegisterScopeIsCurrent(register, scope)) renderTreasuryPagination()
+      })
+      renderTreasuryPagination()
+      return request.promise
     }
 
     async function loadTreasuryConsolidated() {
@@ -2073,6 +2708,7 @@ export const cashRegisterScript = `
       document.getElementById('cash-treasury-counterparty-dialog').hidden = true
       document.getElementById('cash-treasury-counterparty-form').reset()
       document.getElementById('cash-treasury-counterparty-feedback').textContent = ''
+      if (treasuryMovementDrawer.isOpen()) document.getElementById('cash-treasury-counterparty-add').focus()
     }
 
     function openTreasuryCounterpartyDialog() {
@@ -2083,11 +2719,14 @@ export const cashRegisterScript = `
     async function submitTreasuryCounterparty(event) {
       event.preventDefault()
       const feedback = document.getElementById('cash-treasury-counterparty-feedback')
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
       try {
         const created = await getJson('/treasury/counterparties', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: document.getElementById('cash-treasury-counterparty-name').value.trim(), ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
+        if (!cashRegisterScopeIsCurrent(register, scope)) return
         closeTreasuryCounterpartyDialog()
-        await loadTreasury()
-        document.getElementById('cash-treasury-outflow-counterparty').value = created.id
+        await loadTreasury({ refresh: true })
+        if (cashRegisterScopeIsCurrent(register, scope)) document.getElementById('cash-treasury-outflow-counterparty').value = created.id
       } catch (error) { feedback.textContent = error.message; feedback.className = 'cash-feedback error' }
     }
 
@@ -2130,7 +2769,7 @@ export const cashRegisterScript = `
       try {
         await getJson(id ? '/treasury/payment-methods/' + encodeURIComponent(id) : '/treasury/payment-methods', { method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
         document.getElementById('cash-treasury-payment-method-form').hidden = true
-        await Promise.all([openTreasuryPaymentMethodDialog(), loadTreasury()])
+        await Promise.all([openTreasuryPaymentMethodDialog(), loadTreasury({ refresh: true })])
       } catch (error) { feedback.textContent = error.message; feedback.className = 'cash-feedback error' }
     }
 
@@ -2152,7 +2791,7 @@ export const cashRegisterScript = `
         })
         form.reset()
         delete form.dataset.key
-        await Promise.all([loadTreasury({ page: 1 }), loadCashRegister({ preserve: true })])
+        await Promise.all([loadTreasury({ refresh: true }), loadCashRegister({ preserve: true })])
         feedback.textContent = 'Traspaso registrado. No se contabiliza como gasto.'
         feedback.className = 'cash-feedback success'
       } catch (error) {
@@ -2163,13 +2802,20 @@ export const cashRegisterScript = `
 
     async function submitTreasuryOutflow(event) {
       event.preventDefault()
-      const feedback = document.getElementById('cash-treasury-feedback')
+      const register = state.cashRegister
+      if (state.currentUser?.role === 'STAFF' || register.treasuryMovementOperation) return
+      const scope = cashRegisterScopeKey()
+      const isCurrent = () => cashRegisterScopeIsCurrent(register, scope)
+      const feedback = document.getElementById('cash-treasury-outflow-feedback')
       const form = event.currentTarget
+      const submit = document.getElementById('cash-treasury-movement-submit')
       if (!form.dataset.key) form.dataset.key = window.crypto.randomUUID()
+      const operation = register.treasuryMovementOperation = {}
+      const fields = Array.from(form.querySelectorAll('input, select, textarea, button:not([type="submit"])')).map((field) => [field, field.disabled])
+      let confirmed = false
+      setButtonLoading(submit, true, 'Registrando...')
       try {
-        await getJson('/treasury/outflow', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const payload = {
             accountId: document.getElementById('cash-treasury-outflow-account').value,
             kind: document.getElementById('cash-treasury-outflow-kind').value,
             description: document.getElementById('cash-treasury-outflow-description').value.trim(),
@@ -2180,18 +2826,30 @@ export const cashRegisterScript = `
             effectiveDate: document.getElementById('cash-treasury-outflow-date').value,
             idempotencyKey: form.dataset.key,
             ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {})
-          })
-        })
+        }
+        for (const [field] of fields) field.disabled = true
+        await getJson('/treasury/outflow', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        confirmed = true
+        if (!isCurrent()) return
         form.reset()
         delete form.dataset.key
         ensureFinancialDateDefaults()
         renderTreasuryClassificationOptions()
-        await Promise.all([loadTreasury({ page: 1 }), loadTreasuryConsolidated()])
-        feedback.textContent = 'Movimiento registrado en Tesorería.'
-        feedback.className = 'cash-feedback success'
+        form.dataset.initial = treasuryMovementDraft()
+        await treasuryMovementDrawer.close(true)
+        if (!isCurrent()) return
+        showCrmToast('Movimiento registrado en Tesorería.', 'success')
+        await Promise.all([loadTreasury({ refresh: true }), loadTreasuryConsolidated()])
       } catch (error) {
-        feedback.textContent = error.message
-        feedback.className = 'cash-feedback error'
+        if (!isCurrent()) return
+        if (confirmed) showCrmToast('El movimiento fue registrado. Actualizá Tesorería para ver el saldo.', 'success')
+        else { feedback.textContent = error.message; feedback.className = 'cash-feedback error' }
+      } finally {
+        if (register.treasuryMovementOperation === operation) register.treasuryMovementOperation = null
+        if (isCurrent()) {
+          for (const [field, disabled] of fields) field.disabled = disabled
+          setButtonLoading(submit, false)
+        }
       }
     }
 
@@ -2248,7 +2906,7 @@ export const cashRegisterScript = `
         delete form.dataset.sourceType
         delete form.dataset.sourceId
         if (sourceType === 'treasury') {
-          await Promise.all([loadTreasury({ page: state.cashRegister.treasuryPage || 1 }), loadTreasuryConsolidated(), loadProfessionalSettlements()])
+          await Promise.all([loadTreasury({ refresh: true }), loadTreasuryConsolidated(), loadProfessionalSettlements()])
         } else {
           await Promise.all([loadCashRegister({ preserve: true }), loadCashEntries(), loadProfessionalSettlements()])
         }
@@ -2278,6 +2936,7 @@ export const cashRegisterScript = `
       if (showingPeriod && !state.cashRegister.periodLoaded) loadCashPeriod({ page: 1 })
       if (showingProfessionals) { ensureFinancialDateDefaults(); syncProfessionalPaymentSource(); return loadProfessionalSettlements() }
       if (showingTreasury) { ensureFinancialDateDefaults(); loadTreasury(); loadTreasuryConsolidated() }
+      if (mode === 'day' && state.cashRegister.loaded && !cashRegisterFresh(state.cashRegister.loadedAt)) return loadCashRegister({ preserve: true })
     }
 
     function configuredPaymentLine(select, amount) {
@@ -2336,6 +2995,21 @@ export const cashRegisterScript = `
     }
 
     function resetCashRegisterWorkspace() {
+      void professionalPaymentDrawer.close(true)
+      void treasuryMovementDrawer.close(true)
+      closeTreasuryCounterpartyDialog()
+      const treasuryForm = document.getElementById('cash-treasury-outflow-form')
+      treasuryForm.reset()
+      delete treasuryForm.dataset.key
+      for (const field of treasuryForm.querySelectorAll('input, select, textarea')) field.disabled = false
+      setButtonLoading(document.getElementById('cash-treasury-movement-submit'), false)
+      const form = cashUi.professionalPaymentForm
+      form.reset()
+      delete form.dataset.key
+      delete form.dataset.initial
+      for (const field of form.querySelectorAll('input, select, textarea, [data-professional-payment-type]')) field.disabled = false
+      setButtonLoading(cashUi.professionalPaymentSubmit, false)
+      cashUi.professionalPaymentOpen.hidden = true
       stopCashRealtimeEvents()
       clearTimeout(state.cashRegister.financeSummaryRefreshTimer)
       clearTimeout(state.cashRegister.searchTimer)
@@ -2343,7 +3017,7 @@ export const cashRegisterScript = `
       for (const filter of [cashUi.typeFilter, cashUi.methodFilter, cashUi.categoryFilter, cashUi.subcategoryFilter, cashUi.sessionFilter, cashUi.search]) filter.value = ''
       for (const view of [cashUi.dashboard, cashUi.empty, cashUi.sessionStrip, cashUi.openToolbar, cashUi.periodView, cashUi.professionalView, cashUi.treasuryView]) view.hidden = true
       cashUi.daySelect.innerHTML = ''
-      cashUi.entryList.innerHTML = ''
+      resetCashEntryPage()
       cashUi.status.textContent = 'Cargando caja…'
       cashUi.status.classList.remove('open')
     }
@@ -2437,7 +3111,7 @@ export const cashRegisterScript = `
       const selectedDayId = state.cashRegister.selectedDayId
       const retainedDayId = state.cashRegister.days.some((day) => day.id === selectedDayId) ? selectedDayId : null
       state.cashRegister.selectedDayId = isStaffCash ? (current.day?.id || null) : (retainedDayId || current.day?.id || state.cashRegister.days[0]?.id || null)
-      if (isStaffCash && !current.day) { state.cashRegister.entries = []; state.cashRegister.nextCursor = null; cashUi.entryList.innerHTML = '' }
+      if (selectedDayId !== state.cashRegister.selectedDayId || !state.cashRegister.selectedDayId) resetCashEntryPage()
       renderCashCurrent()
       let entries
       if (current.day && current.day.id === state.cashRegister.selectedDayId) {
@@ -2896,7 +3570,7 @@ export const cashRegisterScript = `
       const appointment = editingAgendaAppointment()
       const canCompleteWithPayment = Boolean(
         appointment &&
-        canEditAppointments() &&
+        canCompleteAppointments() &&
         !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(appointment.status) &&
         new Date(appointment.startAt).getTime() <= Date.now()
       )
@@ -3042,7 +3716,7 @@ export const cashRegisterScript = `
           if (els.appShell.dataset.section === 'cash' && state.cashRegister.selectedDayId === selectedDayId && selectedDayId) refreshes.push(selectCashDay(selectedDayId))
           if (state.cashRegister.viewMode === 'professionals') refreshes.push(loadProfessionalSettlements())
           if (state.cashRegister.viewMode === 'period') refreshes.push(loadCashPeriod({ page: state.cashRegister.periodPage }))
-          if (state.cashRegister.viewMode === 'treasury') refreshes.push(loadTreasury(), loadTreasuryConsolidated())
+          if (state.cashRegister.viewMode === 'treasury') refreshes.push(loadTreasury({ refresh: true }), loadTreasuryConsolidated())
           ;[updated] = await Promise.all(refreshes)
         } else {
           await loadAgenda()
@@ -3157,36 +3831,39 @@ export const cashRegisterScript = `
 
     async function loadAppointmentFinance(options = {}) {
       const appointmentId = state.editingAppointmentId
-      const businessId = state.businessId
       if (!appointmentId || !(canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts'))) return
-      const requestId = ++state.cashRegister.appointmentFinanceRequestId
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      const requestId = ++register.appointmentFinanceRequestId
+      const isCurrent = () => cashRegisterScopeIsCurrent(register, scope) && appointmentId === state.editingAppointmentId && requestId === register.appointmentFinanceRequestId
       const key = appointmentFinanceCacheKey(appointmentId)
-      const cached = state.cashRegister.appointmentFinanceCache[key]
-      const preserve = options.preserve !== false && Boolean(state.cashRegister.appointmentFinance)
+      const cached = register.appointmentFinanceCache[key]
+      const preserve = options.preserve !== false && Boolean(register.appointmentFinance)
       if (!preserve) resetAppointmentFinanceView()
-      else {
+      else if (!options.silent) {
         cashUi.financeFeedback.textContent = 'Actualizando...'
         cashUi.financeFeedback.className = 'appointment-finance-feedback'
       }
+      let pending
       try {
         if (canUseCashPermission('canRecordAppointmentPayments')) await loadCashPaymentMethods()
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId || requestId !== state.cashRegister.appointmentFinanceRequestId) return
+        if (!isCurrent()) return
         if (cached && options.force === false) {
           renderAppointmentFinance(cached)
           cashUi.financeFeedback.textContent = ''
           return cached
         }
-        let pending = state.cashRegister.appointmentFinanceInFlight[key]
+        pending = register.appointmentFinanceInFlight[key]
         if (!pending) {
           const paymentContext = canUseCashPermission('canRecordAppointmentPayments')
-            ? getJson(cashScoped('/cash-register/payment-context')).catch(() => ({ day: null, session: null }))
-            : Promise.resolve({ day: null, session: null })
+            && !options.silent ? getJson(cashScoped('/cash-register/payment-context')).catch(() => ({ day: null, session: null })) : null
           pending = Promise.all([getJson(cashScoped('/appointments/' + encodeURIComponent(appointmentId) + '/finance')), paymentContext])
-          state.cashRegister.appointmentFinanceInFlight[key] = pending
+          register.appointmentFinanceInFlight[key] = pending
         }
         const [finance, current] = await pending
-        if (state.cashRegister.appointmentFinanceInFlight[key] === pending) delete state.cashRegister.appointmentFinanceInFlight[key]
-        state.cashRegister.appointmentFinanceCache[key] = finance
+        if (!cashRegisterScopeIsCurrent(register, scope) || (register.appointmentFinanceInFlight[key] !== pending && register.appointmentFinanceCache[key] !== finance)) return
+        delete register.appointmentFinanceInFlight[key]
+        register.appointmentFinanceCache[key] = finance
         cacheAppointmentFinanceSummary(appointmentId, {
           accountId: finance.accountId,
           pricingMode: finance.pricingMode,
@@ -3199,15 +3876,14 @@ export const cashRegisterScript = `
           balanceAmount: finance.balanceAmount
         })
         if (els.appShell.dataset.section === 'agenda') renderAgenda()
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId || requestId !== state.cashRegister.appointmentFinanceRequestId) return
-        state.cashRegister.current = current
+        if (!isCurrent()) return
+        if (current) register.current = current
         renderAppointmentFinance(finance)
-        cashUi.financeFeedback.textContent = ''
+        if (!options.silent) cashUi.financeFeedback.textContent = ''
         return finance
       } catch (error) {
-        delete state.cashRegister.appointmentFinanceInFlight[key]
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId || requestId !== state.cashRegister.appointmentFinanceRequestId) return
-        showAppointmentFinanceError(error.message)
+        if (pending && register.appointmentFinanceInFlight[key] === pending) delete register.appointmentFinanceInFlight[key]
+        if (isCurrent() && !options.silent) showAppointmentFinanceError(error.message)
       }
     }
 
@@ -3320,15 +3996,21 @@ export const cashRegisterScript = `
       const businessId = state.businessId
       if (!appointmentId || !businessId) return
       const key = appointmentPaymentOperationKey()
-      const operations = state.cashRegister.appointmentPaymentOperations ||= {}
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      const isCurrent = () => cashRegisterScopeIsCurrent(register, scope) && appointmentId === state.editingAppointmentId
+      const financeKey = appointmentFinanceCacheKey(appointmentId)
+      const operations = register.appointmentPaymentOperations ||= {}
       if (operations[key]) return
       const completedWithPayment = !cashUi.paymentCompleteRow.hidden && cashUi.paymentComplete.checked
       const operation = { completedWithPayment }
       operations[key] = operation
       syncAppointmentPaymentLoading()
+      let paymentRequested = false
+      let paymentConfirmed = false
       try {
         await loadCashPaymentMethods()
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
+        if (!isCurrent()) return
         const lines = [configuredPaymentLine(cashUi.paymentMethod, Number(cashUi.paymentAmount.value))]
         if (!cashUi.paymentLineTwo.hidden) lines.push(configuredPaymentLine(cashUi.paymentMethodTwo, Number(cashUi.paymentAmountTwo.value)))
         if (lines.some((line) => !Number.isSafeInteger(line.amount) || line.amount <= 0)) {
@@ -3340,8 +4022,36 @@ export const cashRegisterScript = `
           showAppointmentFinanceError('Los medios de pago deben completar exactamente el saldo pendiente.')
           return
         }
-        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cashSessionId: state.cashRegister.current?.session?.id, lines, completeAppointment: completedWithPayment, observation: cashUi.paymentObservation.value.trim() || undefined, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
+        paymentRequested = true
+        const result = await getJson('/appointments/' + encodeURIComponent(appointmentId) + '/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cashSessionId: register.current?.session?.id, lines, completeAppointment: completedWithPayment, observation: cashUi.paymentObservation.value.trim() || undefined, ...(isCashBusinessScopedRole() ? { businessId } : {}) }) })
+        paymentConfirmed = true
+        if (!cashRegisterScopeIsCurrent(register, scope)) return
+        invalidateCashRegister()
+        delete register.appointmentFinanceInFlight[financeKey]
+        const appointment = state.agendaAppointments.find((item) => item.id === appointmentId) || (isCurrent() ? editingAgendaAppointment() : null)
+        const summary = { ...(register.appointmentFinanceSummaryCache[financeKey] || appointment?.financeSummary), ...result.finance }
+        const { appointmentId: _completedId, previousStatus: _previousStatus, ...completion } = result.completion || {}
+        if (appointment) applyAgendaAppointmentResult(appointmentId, { ...appointment, ...completion, financeSummary: summary })
+        if (isCurrent() && state.editingAppointmentSnapshot?.id === appointmentId) {
+          state.editingAppointmentSnapshot = { ...state.editingAppointmentSnapshot, ...completion, financeSummary: summary }
+        }
+        cacheAppointmentFinanceSummary(appointmentId, summary)
+        const cached = register.appointmentFinanceCache[financeKey]
+        const newEntries = result.entries.map((entry) => ({ ...entry, type: 'PAYMENT', direction: 'INFLOW' }))
+        const hasNewHistory = cached?.entries && newEntries.every((entry) => entry.effectiveAt && !cached.entries.some((previous) => previous.id === entry.id)) &&
+          cached.agreedAmount === result.finance.agreedAmount && cached.discountAmount === result.finance.discountAmount &&
+          cached.paidAmount + newEntries.reduce((total, entry) => total + entry.amount, 0) === result.finance.paidAmount
+        const finance = { ...(cached || (isCurrent() ? register.appointmentFinance : summary)), ...result.finance }
+        if (hasNewHistory) {
+          finance.entries = [...newEntries, ...cached.entries]
+          register.appointmentFinanceCache[financeKey] = finance
+          if (appointment) {
+            const ownEntries = register.ownAppointmentPaymentEntries ||= new Set()
+            for (const entry of newEntries) ownEntries.add(entry.id)
+            while (ownEntries.size > 50) ownEntries.delete(ownEntries.values().next().value)
+          }
+        } else delete register.appointmentFinanceCache[financeKey]
+        if (!isCurrent()) return
         cashUi.paymentAmount.value = ''
         selectDefaultPaymentMethod(cashUi.paymentMethod, 'CASH')
         cashUi.paymentAmountTwo.value = ''
@@ -3349,23 +4059,39 @@ export const cashRegisterScript = `
         cashUi.paymentObservation.value = ''
         cashUi.paymentLineTwo.hidden = true
         cashUi.paymentComplete.checked = false
-        state.cashRegister.editFinance.collectTotal = false
-        await loadAppointmentFinance()
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
-        if (completedWithPayment) {
-          cashUi.financeFeedback.textContent = 'Pago registrado. Actualizando Agenda...'
-          await loadAgenda()
-          if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
+        register.editFinance.collectTotal = false
+        if (result.completion) {
+          els.appointmentTitle.textContent = 'Detalle del turno realizado'
+          els.appointmentComplete.hidden = true
+          els.appointmentNoShow.hidden = true
         }
-        const message = completedWithPayment ? 'Pago registrado y turno marcado como realizado.' : 'Pago registrado.'
+        if (hasNewHistory) renderAppointmentFinance(finance)
+        else {
+          renderAppointmentFinanceSummary(finance)
+          void loadAppointmentFinance({ force: true, preserve: true, silent: true })
+        }
+        const message = result.completion ? 'Pago registrado y turno marcado como realizado.' : 'Pago registrado.'
         cashUi.financeFeedback.textContent = message
         cashUi.financeFeedback.className = 'appointment-finance-feedback success'
         showCrmToast(message, 'success')
       } catch (error) {
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
-        if (error.body?.code === 'CASH_CLOSED' || error.body?.code === 'STALE_SESSION') await loadAppointmentFinance()
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
-        showAppointmentFinanceError(error.message)
+        if (!isCurrent()) return
+        if (paymentConfirmed) {
+          await Promise.all([loadAppointmentFinance(), refreshAgendaAppointment(appointmentId)])
+          if (isCurrent()) {
+            const message = 'Pago registrado. Podés volver a abrir el turno para revisar el saldo y los movimientos.'
+            cashUi.financeFeedback.textContent = message
+            cashUi.financeFeedback.className = 'appointment-finance-feedback success'
+            showCrmToast('Pago registrado.', 'success')
+          }
+          return
+        }
+        const unconfirmed = paymentRequested && (!error.status || error.status >= 500)
+        if (unconfirmed || error.body?.code === 'CASH_CLOSED' || error.body?.code === 'STALE_SESSION') {
+          delete register.appointmentFinanceInFlight[financeKey]
+          await loadAppointmentFinance()
+        }
+        if (isCurrent()) showAppointmentFinanceError(unconfirmed ? 'No se pudo confirmar el cobro. Revisá el saldo y los movimientos antes de volver a intentar.' : error.message)
       } finally {
         if (operations[key] === operation) delete operations[key]
         syncAppointmentPaymentLoading()
@@ -3468,9 +4194,21 @@ export const cashRegisterScript = `
     cashUi.viewPeriod.addEventListener('click', () => setCashView('period'))
     cashUi.viewProfessionals.addEventListener('click', () => setCashView('professionals'))
     cashUi.viewTreasury.addEventListener('click', () => setCashView('treasury'))
+    document.getElementById('cash-treasury-movement-open').addEventListener('click', (event) => openTreasuryMovement(event.currentTarget))
     document.getElementById('cash-treasury-counterparty-add').addEventListener('click', openTreasuryCounterpartyDialog)
     document.getElementById('cash-treasury-counterparty-x').addEventListener('click', closeTreasuryCounterpartyDialog)
     document.getElementById('cash-treasury-counterparty-cancel').addEventListener('click', closeTreasuryCounterpartyDialog)
+    document.getElementById('cash-treasury-counterparty-dialog').addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); closeTreasuryCounterpartyDialog(); return }
+      if (event.key !== 'Tab') return
+      const fields = Array.from(event.currentTarget.querySelectorAll('button:not(:disabled), input:not(:disabled)')).filter((field) => field.getClientRects().length)
+      const first = fields[0]
+      const last = fields[fields.length - 1]
+      if (event.shiftKey && document.activeElement === first || !event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first)?.focus()
+      }
+    })
     document.getElementById('cash-treasury-counterparty-form').addEventListener('submit', submitTreasuryCounterparty)
     document.getElementById('cash-treasury-payment-method-add').addEventListener('click', openTreasuryPaymentMethodDialog)
     document.getElementById('cash-treasury-payment-method-x').addEventListener('click', closeTreasuryPaymentMethodDialog)
@@ -3494,8 +4232,7 @@ export const cashRegisterScript = `
     document.getElementById('cash-treasury-filter-search').addEventListener('input', () => { clearTimeout(treasurySearchTimer); treasurySearchTimer = setTimeout(() => loadTreasury({ page: 1 }), 300) })
     document.getElementById('cash-treasury-filter-category').addEventListener('change', () => { renderTreasuryClassificationOptions(); loadTreasury({ page: 1 }) })
     document.getElementById('cash-treasury-filter-subcategory').addEventListener('change', () => loadTreasury({ page: 1 }))
-    document.getElementById('cash-treasury-previous').addEventListener('click', () => loadTreasury({ page: Math.max(1, (state.cashRegister.treasuryPage || 1) - 1) }))
-    document.getElementById('cash-treasury-next').addEventListener('click', () => loadTreasury({ page: (state.cashRegister.treasuryPage || 1) + 1 }))
+    document.getElementById('cash-treasury-next').addEventListener('click', () => loadTreasury({ append: true }))
     document.getElementById('cash-treasury-period-apply').addEventListener('click', loadTreasuryConsolidated)
     document.getElementById('cash-treasury-transfer-form').addEventListener('submit', submitTreasuryTransfer)
     document.getElementById('cash-treasury-outflow-form').addEventListener('submit', submitTreasuryOutflow)
@@ -3510,10 +4247,26 @@ export const cashRegisterScript = `
     document.getElementById('cash-financial-date-dialog').addEventListener('click', (event) => { if (event.target === event.currentTarget) closeFinancialDateDialog() })
     cashUi.professionalRefresh.addEventListener('click', () => loadProfessionalSettlements({ page: state.cashRegister.professionalPage }))
     cashUi.professionalFilter.addEventListener('change', () => loadProfessionalSettlements({ page: 1 }))
+    cashUi.professionalPaymentOpen.addEventListener('click', () => openProfessionalPayment())
     cashUi.professionalPaymentForm.addEventListener('submit', submitProfessionalPayment)
-    for (const eventName of ['input', 'change']) cashUi.professionalPaymentForm.addEventListener(eventName, () => { delete cashUi.professionalPaymentForm.dataset.key })
+    for (const eventName of ['input', 'change']) cashUi.professionalPaymentForm.addEventListener(eventName, () => {
+      if (state.cashRegister.professionalPaymentOperation) return
+      delete cashUi.professionalPaymentForm.dataset.key
+      state.cashRegister.professionalPaymentDraftRevision = (state.cashRegister.professionalPaymentDraftRevision || 0) + 1
+    })
     cashUi.professionalPaymentSource.addEventListener('change', syncProfessionalPaymentSource)
+    cashUi.professionalPaymentMethod.addEventListener('change', syncProfessionalPaymentSource)
+    cashUi.professionalPaymentProfessional.addEventListener('change', () => selectProfessionalPayment())
+    cashUi.professionalPaymentForm.querySelectorAll('[data-professional-payment-type]').forEach((button) => button.addEventListener('click', () => {
+      if (state.cashRegister.professionalPaymentOperation) return
+      cashUi.professionalPaymentType.value = button.dataset.professionalPaymentType
+      delete cashUi.professionalPaymentForm.dataset.key
+      state.cashRegister.professionalPaymentDraftRevision = (state.cashRegister.professionalPaymentDraftRevision || 0) + 1
+      syncProfessionalPaymentSource()
+    }))
     cashUi.professionalSummary.addEventListener('click', (event) => {
+      const pay = event.target.closest('[data-professional-settlement-pay]')
+      if (pay) { openProfessionalPayment(pay.dataset.professionalSettlementPay, pay); return }
       const button = event.target.closest('[data-professional-settlement-toggle]')
       if (!button) return
       const professionalId = button.dataset.professionalSettlementToggle
@@ -3521,6 +4274,9 @@ export const cashRegisterScript = `
       else state.cashRegister.professionalExpandedIds.add(professionalId)
       if (state.cashRegister.professionalSummaryResult) renderProfessionalSettlements(state.cashRegister.professionalSummaryResult)
     })
+    cashUi.professionalSummary.addEventListener('toggle', (event) => {
+      if (event.target.matches('.cash-professional-former')) state.cashRegister.professionalFormerOpen = event.target.open
+    }, true)
     document.querySelectorAll('[data-cash-professional-preset]').forEach((button) => button.addEventListener('click', () => {
       setProfessionalPeriodPreset(button.dataset.cashProfessionalPreset)
       if (button.dataset.cashProfessionalPreset !== 'custom') {
@@ -3562,7 +4318,7 @@ export const cashRegisterScript = `
     cashUi.categoryFilter.addEventListener('change', () => { renderCashExpenseSubcategoryOptions(); loadCashEntries() })
     cashUi.subcategoryFilter.addEventListener('change', () => loadCashEntries())
     cashUi.sessionFilter.addEventListener('change', () => loadCashEntries())
-    cashUi.search.addEventListener('input', () => { clearTimeout(state.cashRegister.searchTimer); state.cashRegister.searchTimer = setTimeout(() => loadCashEntries(), 250) })
+    cashUi.search.addEventListener('input', () => { clearTimeout(state.cashRegister.searchTimer); renderCashEntryPagination(); state.cashRegister.searchTimer = setTimeout(() => loadCashEntries(), 250) })
     cashUi.nextPage.addEventListener('click', () => loadCashEntries({ append: true }))
     cashUi.entryList.addEventListener('click', (event) => {
       const serviceButton = event.target.closest('[data-cash-correct-service]')
@@ -3636,7 +4392,7 @@ export const cashRegisterScript = `
         const appointment = editingAgendaAppointment()
         cashUi.paymentComplete.checked = Boolean(
           appointment &&
-          canEditAppointments() &&
+          canCompleteAppointments() &&
           !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(appointment.status) &&
           new Date(appointment.startAt).getTime() <= Date.now()
         )

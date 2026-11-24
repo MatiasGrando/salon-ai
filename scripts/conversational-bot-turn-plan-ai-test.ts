@@ -40,9 +40,16 @@ assert.equal(request!.text.format.schema.type, 'object')
 assert.ok(request!.text.format.schema.properties.turnPlan.anyOf.some((part: any) => part.type === 'null'))
 const planSchema = request!.text.format.schema.properties.turnPlan.anyOf.find((part: any) => part.type === 'object')
 assert.ok(planSchema.properties.operations.items.anyOf.find((part: any) => part.properties.kind.enum.includes('service')).properties.mode.enum.includes('unresolved'))
+const findSchema = (schema: any, predicate: (value: any) => boolean): any => predicate(schema) ? schema :
+  schema?.anyOf?.map((part: any) => findSchema(part, predicate)).find(Boolean) ?? null
+const professionalInformationSchema = findSchema(request!.text.format.schema.properties.informationTarget,
+  (part: any) => part.properties?.kind?.enum?.includes('professional'))
+assert.ok(professionalInformationSchema.properties.aspect.enum.includes('availability'), 'the strict AI schema must permit verified professional-availability inquiries')
 assert.match(request!.instructions, /(?:combin|simult)/i)
 assert.match(request!.instructions, /(?:nombre|name)[^.]*pendiente/i)
 assert.match(request!.instructions, /alternativas[^.]*múltiples|múltiples[^.]*alternativas/i)
+assert.match(request!.instructions, /disponibilidad de otro profesional[^.]*aspect availability/i,
+  'the interpretation guide should distinguish a professional availability inquiry from changing the selected professional')
 assert.equal(request!.store, false)
 assert.equal(request!.reasoning.effort, 'none')
 assert.ok(request!.max_output_tokens >= 1800, 'bounded multi-operation plans need more than the legacy 600-token output limit')

@@ -17,7 +17,7 @@ function functions(source: string, names: string[]) {
   visit(ast)
   return names.map((name) => { assert.ok(found.has(name), 'Production function required: ' + name); return found.get(name) }).join('\n')
 }
-const navFunctions = functions(mainScript, ['staffVisibleSections', 'staffSettlementsLabel', 'staffPermissionFields', 'syncStaffProfileFields'])
+const navFunctions = functions(mainScript, ['staffVisibleSections', 'staffSettlementsLabel', 'staffPermissionFields', 'syncStaffProfileFields', 'syncStaffPermissionOverview'])
 const cashFunctions = functions(cashRegisterScript, ['canUseCashPermission', 'cashScoped', 'isCashBusinessScopedRole', 'loadProfessionalSettlements', 'renderProfessionalSettlementFilter', 'loadStaffSettlements', 'setCashView', 'startCashRealtimeEvents', 'stopCashRealtimeEvents'])
 
 function element() {
@@ -37,6 +37,7 @@ function harness(profile: string, extra: any = {}) {
   cashUi.professionalSummary.closest = () => summaryPanel
   const todayPanel = element(), todayTable = element()
   const els: any = { appShell: { dataset: { section: 'settlements' } }, staffUserProfile: { value: profile }, staffProfessionalField: element(), staffUserProfessional: element(), staffUserForm: { querySelectorAll: () => [] }, staffPermissionsTitle: element(), staffPermissionsHelp: element(), staffSettlementsPermissionLabel: element(), staffCanViewProfessionalSettlements: element() }
+  els.staffPaymentsPermissionLabel = element()
   const document = { body: { dataset: { currentSection: 'settlements' } }, getElementById: (id: string) => id.endsWith('today-panel') ? todayPanel : todayTable }
   const calls: string[] = [], rendered: any[] = [], sources: any[] = []
   const context: any = vm.createContext({ state, cashUi, els, document, URLSearchParams, isWorkshopBusiness: () => false, isPipelineBusiness: () => false,
@@ -129,6 +130,8 @@ assert.equal(today.summaryPanel.hidden, true)
 assert.equal(today.cashUi.professionalPaymentPanel.hidden, true)
 assert.match(today.todayTable.innerHTML, /Facturado/)
 const race = harness('SECRETARY', { canViewProfessionalSettlements: true })
+race.state.cashRegister.professionalFilterScope = 'b1:user-1'
+race.state.cashRegister.professionalFilterOptions = [{ id: 'p1', name: 'Ana' }, { id: 'p2', name: 'Luis' }]
 const pending: Array<(value: any) => void> = []
 race.context.getJson = () => new Promise((resolve) => pending.push(resolve))
 race.cashUi.professionalFilter.value = 'p1'

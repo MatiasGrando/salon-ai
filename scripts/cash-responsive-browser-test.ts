@@ -2,8 +2,180 @@ import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import vm from 'node:vm'
 import { renderCrmHtml } from '../src/routes/crm-ui.js'
-import { cashRegisterMarkup } from '../src/routes/crm-ui/cash-register.js'
+import { cashRegisterMarkup, cashRegisterScript } from '../src/routes/crm-ui/cash-register.js'
+
+const dayMarkup = cashRegisterMarkup.slice(cashRegisterMarkup.indexOf('id="cash-dashboard"'))
+const summaryCards = [...dayMarkup.matchAll(/class="cash-summary-card cash-day-card--(\w+)"/g)].map(match => match[1])
+assert.deepEqual(summaryCards, ['collected', 'outgoing', 'total', 'expected'], 'Caja actual distingue sus cuatro indicadores')
+assert.match(cashRegisterScript, /<table class="cash-day-table cash-movements-table"[\s\S]*?<th scope="col">Concepto<\/th>[\s\S]*?<th scope="col">Acciones<\/th>/)
+assert.match(cashRegisterScript, /<table class="cash-day-table cash-sessions-table"[\s\S]*?<th scope="col">Responsable<\/th>[\s\S]*?<th scope="col">Diferencia<\/th>/)
+
+function cashFunction(name: string) {
+  const start = cashRegisterScript.search(new RegExp('    (?:async )?function ' + name + '\\('))
+  assert.notEqual(start, -1)
+  return cashRegisterScript.slice(start, cashRegisterScript.indexOf('\n    }', start) + 6)
+}
+
+const dayFixture = `
+  const node = id => document.getElementById(id);
+  const cashUi = { entryList: node('cash-entry-list'), nextPage: node('cash-next-page'),
+    sessionCount: node('cash-session-count'), sessionFilter: node('cash-session-filter'), sessionList: node('cash-session-list') };
+  const cashMoney = amount => '$ ' + amount.toLocaleString('es-AR');
+  const cashSignedMoney = amount => (amount < 0 ? '− ' : '+ ') + cashMoney(Math.abs(amount));
+  const cashDate = () => '17/10/26, 10:34 p. m.';
+  const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+  const cashTypeLabels = { PAYMENT: 'Cobro', REFUND: 'Devolución' };
+  const cashMethodLabels = { CASH: 'Efectivo', TRANSFER: 'Transferencia / Mercado Pago' };
+  const canCorrectCashEntryService = entry => entry.type === 'PAYMENT' && state.currentUser.role !== 'STAFF';
+  const entries = Array.from({ length: 30 }, (_, i) => ({
+    id: 'movement-' + i, description: 'Cliente con nombre largo <Medina Sin Espacio> ' + i,
+    type: i % 2 ? 'REFUND' : 'PAYMENT', direction: i % 2 ? 'OUTFLOW' : 'INFLOW',
+    method: i % 2 ? 'TRANSFER' : 'CASH', amount: 44000 + i, origin: 'AGENDA'
+  }));
+  const state = { currentUser: { role: 'BUSINESS_ADMIN' }, cashRegister: { entries, nextCursor: null } };
+  ${cashFunction('renderCashSessions')}
+  ${cashFunction('renderCashEntries')}
+  renderCashSessions([{ id: 'active-session', responsibleName: 'Matías Grando', openedAt: 1 },
+    { id: 'closed-session', responsibleName: 'Responsable de cierre', openedAt: 1, closedAt: 2, expectedCash: 91000, countedCash: 90000, cashDifference: -1000 }], 482000);
+  renderCashEntries();
+`
+const nodes = new Map<string, { innerHTML: string; textContent: string; hidden: boolean; value: string; disabled: boolean; setAttribute(...args: any[]): void; insertAdjacentHTML(position: string, html: string): void }>()
+const context = vm.createContext({ URLSearchParams, document: { getElementById(id: string) {
+  if (!nodes.has(id)) nodes.set(id, { innerHTML: '', textContent: '', hidden: false, value: '', disabled: false, setAttribute() {}, insertAdjacentHTML(_position: string, html: string) { this.innerHTML += html } })
+  return nodes.get(id)
+} } })
+vm.runInContext(dayFixture, context)
+assert.match(nodes.get('cash-session-list')!.innerHTML, /<tbody><tr[\s\S]*Matías Grando[\s\S]*>Activa<\/[\s\S]*>Cerrada<\//)
+assert.match(nodes.get('cash-entry-list')!.innerHTML, /<tbody><tr[\s\S]*&lt;Medina Sin Espacio>[\s\S]*data-cash-correct-date="movement-0"[\s\S]*data-cash-correct-service="movement-0"/)
+assert.match(nodes.get('cash-entry-list')!.innerHTML, /class="cash-entry-amount outflow">− /)
+vm.runInContext("state.currentUser.role = 'STAFF'; renderCashEntries()", context)
+assert.doesNotMatch(nodes.get('cash-entry-list')!.innerHTML, /data-cash-correct-/)
+console.log('OK Caja actual: indicadores, tablas, datos escapados y acciones según el rol')
+
+const periodFields = ['From', 'To', 'Feedback', 'Gross', 'Cash', 'Transfer', 'Card', 'UnknownCollected', 'UnknownCollectedRow', 'UnknownOutgoing', 'UnknownOutgoingRow', 'UnknownTotal', 'UnknownTotalRow', 'Refunds', 'ExpensesTotal', 'OutgoingCash', 'OutgoingTransfer', 'OutgoingCard', 'Result', 'TotalCash', 'TotalTransfer', 'TotalCard', 'Withdrawals', 'Adjustments', 'CategoryList', 'CategoryFilter', 'SubcategoryFilter', 'MethodFilter', 'Search', 'PageSize', 'ExpenseList', 'ExpenseCount', 'PageInfo', 'Previous', 'Next']
+const financeFixture = `(async () => {
+  const node = id => document.getElementById(id);
+  const cashUi = Object.fromEntries(${JSON.stringify(periodFields)}.map(field => ['period' + field, node('cash-period-' + field.replace(/[A-Z]/g, (letter, i) => (i ? '-' : '') + letter.toLowerCase()))]));
+  const cashMoney = amount => '$ ' + Number(amount || 0).toLocaleString('es-AR');
+  const cashSignedMoney = amount => (amount < 0 ? '− ' : '+ ') + cashMoney(Math.abs(amount));
+  const cashDate = () => '17/10/26, 10:34 p. m.';
+  const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+  const cashMethodLabels = { CASH: 'Efectivo', TRANSFER: 'Transferencia / Mercado Pago' };
+  const cashScoped = url => url;
+  const isCashBusinessScopedRole = () => true;
+  const cashRegisterScopeKey = () => state.businessId;
+  const cashRegisterScopeIsCurrent = (register, scope) => register === state.cashRegister && scope === state.businessId;
+  const showCrmToast = () => {};
+  const state = { businessId: 'shop', currentUser: { role: 'BUSINESS_ADMIN' }, cashRegister: {} };
+  const requests = [];
+  const periodEntries = Array.from({ length: 30 }, (_, i) => ({ id: 'period-' + i, type: i % 2 ? 'REVERSAL' : 'EXPENSE', amount: 5000 + i, method: i % 2 ? 'TRANSFER' : 'CASH', description: 'Insumos <especiales> ' + i, expenseCategoryName: 'Productos', expenseSubcategoryName: 'Coloración', effectiveAt: 1 }));
+  const movements = Array.from({ length: 20 }, (_, i) => ({ id: 'treasury-' + i, kind: i === 0 ? 'DAILY_TRANSFER' : i % 2 ? 'EXPENSE' : 'INCOME', direction: i % 2 ? 'OUTFLOW' : 'INFLOW', amount: 5000 + i, accountName: 'Cuenta del negocio', description: 'Detalle <especial> ' + i, effectiveAt: 1, createdAt: 2, expenseCategoryName: 'Productos', expenseSubcategoryName: 'Coloración', counterparty: 'Proveedor', correctionRole: i === 2 ? 'REVERSAL' : undefined, dateCorrected: i === 3, correctionReason: i === 2 ? 'Fecha <ajustada>' : '' }));
+  const accounts = [{ id: 'cash', kind: 'CASH', name: 'Efectivo', balance: 85000, isActive: true }, { id: 'bank', kind: 'TRANSFER', name: 'Banco <principal>', balance: 42000, isActive: true }, { id: 'card', kind: 'CARD', name: 'Posnet', balance: 0, isActive: false }];
+  const summary = { grossCollected: 153000, expenses: 20000, refunds: 5000, operatingResult: 128000, withdrawals: 3000, adjustments: -1000, collectedByMethod: { CASH: 100000, TRANSFER: 50000 }, outgoingByMethod: { CASH: 20000, TRANSFER: 5000 }, expenseByCategory: [{ name: 'Productos', amount: 20000 }] };
+  const getJson = async url => {
+    requests.push(url);
+    if (url.startsWith('/cash-register/period/summary')) return { summary };
+    if (url.startsWith('/cash-register/period/expenses')) return { entries: periodEntries, page: 2, totalPages: 2, total: 80 };
+    if (url.startsWith('/treasury/consolidated')) return { summary: { collected: 160000, outgoing: 30000, total: 130000, outgoingCash: 25000, outgoingTreasury: 5000, incomingTreasury: 7000, collectedByMethod: summary.collectedByMethod, outgoingByMethod: summary.outgoingByMethod, totalByMethod: { CASH: 80000, TRANSFER: 45000 } } };
+    return { accounts, counterparties: [{ id: 'supplier', name: 'Proveedor', isActive: true }], movements, page: 2, pageSize: 20, total: 61, totalPages: 4 };
+  };
+  cashUi.periodFrom.value = node('cash-treasury-period-from').value = '2026-10-01';
+  cashUi.periodTo.value = node('cash-treasury-period-to').value = '2026-10-31';
+  cashUi.periodPageSize.value = '50';
+  cashUi.periodCategoryFilter.value = node('cash-treasury-filter-category').value = 'products';
+  cashUi.periodSubcategoryFilter.value = node('cash-treasury-filter-subcategory').value = 'color';
+  cashUi.periodMethodFilter.value = 'CASH';
+  cashUi.periodSearch.value = node('cash-treasury-filter-search').value = 'insumos';
+  node('cash-treasury-filter-kind').value = 'EXPENSE';
+  ${cashFunction('validateCashPeriodDates')}
+  ${cashFunction('renderCashPeriodSummary')}
+  ${cashFunction('renderCashPeriodExpenses')}
+  ${cashFunction('loadCashPeriod')}
+  ${cashFunction('treasuryFilterUrl')}
+  ${cashFunction('treasuryMovementRows')}
+  ${cashFunction('renderTreasuryPagination')}
+  ${cashFunction('renderTreasuryMovements')}
+  ${cashFunction('renderTreasuryAccounts')}
+  ${cashFunction('loadTreasury')}
+  ${cashFunction('loadTreasuryConsolidated')}
+  await loadCashPeriod({ page: 2 });
+  await loadTreasury();
+  await loadTreasuryConsolidated();
+  globalThis.financeRequests = requests;
+  globalThis.treasuryQa = { state, loadTreasury, loadTreasuryConsolidated };
+})()`
+await vm.runInContext(financeFixture, context)
+const periodHtml = nodes.get('cash-period-expense-list')!.innerHTML
+const treasuryHtml = nodes.get('cash-treasury-entries')!.innerHTML
+assert.match(periodHtml, /<table[\s\S]*?<th scope="col">Fecha<\/th>[\s\S]*?<th scope="col">Importe<\/th>/, 'Historial conserva fechas y todos los campos en una tabla operativa')
+assert.match(periodHtml, /&lt;especiales>[\s\S]*Coloración/)
+assert.match(periodHtml, /cash-entry-amount inflow/)
+assert.equal(nodes.get('cash-period-gross')!.textContent, '$ 153.000')
+assert.equal(nodes.get('cash-period-expenses-total')!.textContent, '$ 25.000')
+assert.equal(nodes.get('cash-period-result')!.textContent, '$ 128.000')
+assert.equal(nodes.get('cash-period-withdrawals')!.textContent, '$ 3.000')
+assert.equal(nodes.get('cash-period-adjustments')!.textContent, '− $ 1.000')
+assert.equal(nodes.get('cash-period-unknown-collected-row')!.hidden, false)
+assert.equal(nodes.get('cash-period-next')!.disabled, true)
+assert.equal(nodes.get('cash-period-previous')!.disabled, false)
+assert.match(nodes.get('cash-treasury-account-grid')!.innerHTML, /cash-icon[\s\S]*Banco &lt;principal>[\s\S]*Inactivo/, 'Cuentas conserva iconos, nombre escapado y estado')
+assert.match(treasuryHtml, /cash-entry-chip[\s\S]*Traspaso interno/)
+assert.match(treasuryHtml, /cash-entry-amount outflow/)
+assert.match(treasuryHtml, /Registrado:[\s\S]*Fecha &lt;ajustada>/)
+assert.match(treasuryHtml, /data-treasury-correct-date="treasury-1"/)
+assert.doesNotMatch(treasuryHtml, /data-treasury-correct-date="treasury-[023]"/)
+assert.equal(nodes.get('cash-treasury-consolidated-total')!.textContent, '$ 130.000')
+assert.match(nodes.get('cash-treasury-page-info')!.textContent, /Mostrando 5 de 61/)
+assert.equal(nodes.get('cash-treasury-next')!.disabled, false)
+const financeRequests = vm.runInContext('financeRequests', context) as string[]
+const periodQuery = new URL(financeRequests.find(url => url.startsWith('/cash-register/period/expenses'))!, 'http://local').searchParams
+for (const [key, value] of Object.entries({ businessId: 'shop', page: '2', pageSize: '50', categoryId: 'products', subcategoryId: 'color', method: 'CASH', q: 'insumos' })) assert.equal(periodQuery.get(key), value)
+const treasuryQuery = new URL(financeRequests.find(url => url.startsWith('/treasury?'))!, 'http://local').searchParams
+for (const [key, value] of Object.entries({ page: '1', kind: 'EXPENSE', search: 'insumos', expenseCategoryId: 'products', expenseSubcategoryId: 'color' })) assert.equal(treasuryQuery.get(key), value)
+console.log('OK Historial y Tesorería: render real, cálculos, filtros, paginación, datos escapados y correcciones')
+
+if (process.argv.includes('--contract-only')) process.exit(0)
+
+const treasuryDrawerStart = cashRegisterScript.indexOf('    const treasuryMovementDrawer = createCrmDrawer(')
+const treasuryDrawerBinding = cashRegisterScript.slice(treasuryDrawerStart, cashRegisterScript.indexOf('\n    })', treasuryDrawerStart) + 7)
+const counterpartyKeysStart = cashRegisterScript.indexOf("    document.getElementById('cash-treasury-counterparty-dialog').addEventListener('keydown'")
+const counterpartyKeys = cashRegisterScript.slice(counterpartyKeysStart, cashRegisterScript.indexOf("    document.getElementById('cash-treasury-counterparty-form').addEventListener", counterpartyKeysStart))
+const treasuryDrawerFixture = `(() => {
+  const { state, loadTreasury, loadTreasuryConsolidated } = globalThis.treasuryQa;
+  const qa = globalThis.treasuryQa;
+  if (!window.crypto.randomUUID) Object.defineProperty(window.crypto, 'randomUUID', { value: () => 'qa-idempotency-key' });
+  state.cashRegister.expenseCategories = [{ id: 'products', name: 'Productos', isActive: true }];
+  state.cashRegister.expenseSubcategories = [{ id: 'color', categoryId: 'products', name: 'Coloración', isActive: true }];
+  const els = { confirmationDialog: { hidden: true } };
+  const requestCrmConfirmation = async () => { qa.confirmations = (qa.confirmations || 0) + 1; return false; };
+  const showCrmToast = message => { qa.notice = message; };
+  const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+  const isCashBusinessScopedRole = () => true;
+  const cashRegisterScopeKey = () => state.businessId;
+  const cashRegisterScopeIsCurrent = (register, scope) => register === state.cashRegister && scope === state.businessId;
+  const setButtonLoading = (button, busy, label) => { button.disabled = busy; button.textContent = busy ? label : 'Confirmar movimiento'; };
+  const getJson = async () => { if (qa.failNext) { qa.failNext = false; throw new Error('Saldo insuficiente'); } return {}; };
+  ${cashFunction('createCrmDrawer')}
+  ${cashFunction('cashIsoDate')}
+  ${cashFunction('ensureFinancialDateDefaults')}
+  ${cashFunction('renderTreasuryClassificationOptions')}
+  ${cashFunction('treasuryMovementDraft')}
+  ${treasuryDrawerBinding}
+  ${cashFunction('openTreasuryMovement')}
+  ${cashFunction('submitTreasuryOutflow')}
+  ${cashFunction('openTreasuryCounterpartyDialog')}
+  ${cashFunction('closeTreasuryCounterpartyDialog')}
+  ${counterpartyKeys}
+  document.getElementById('cash-treasury-movement-open').addEventListener('click', event => openTreasuryMovement(event.currentTarget));
+  document.getElementById('cash-treasury-outflow-form').addEventListener('submit', submitTreasuryOutflow);
+  document.getElementById('cash-treasury-outflow-category').addEventListener('change', renderTreasuryClassificationOptions);
+  document.getElementById('cash-treasury-counterparty-add').addEventListener('click', openTreasuryCounterpartyDialog);
+  document.getElementById('cash-treasury-counterparty-x').addEventListener('click', closeTreasuryCounterpartyDialog);
+  document.getElementById('cash-treasury-counterparty-cancel').addEventListener('click', closeTreasuryCounterpartyDialog);
+  qa.drawer = treasuryMovementDrawer;
+})()`
 
 const modulePath = process.env.CRM_QA_BROWSER_MODULE
 assert.ok(modulePath, 'Definí CRM_QA_BROWSER_MODULE con el módulo Playwright disponible para ejecutar la regresión visual.')
@@ -30,14 +202,20 @@ try {
     for (const select of document.querySelectorAll<HTMLSelectElement>('.cash-shell select')) {
       if (!select.options.length) select.innerHTML = '<option>Profesional y medio de pago del negocio</option>'
     }
-    node('cash-entry-list').innerHTML = Array.from({ length: 30 }, (_, i) => `<div class="cash-entry" data-qa-row="day-${i}"><div class="cash-entry-main"><strong>${longName}</strong><span>Cobro de servicio ${i + 1}</span></div><span>Efectivo</span><span>17/10/2026</span><small>Responsable</small><strong class="cash-entry-amount">$ 44.000</strong><div class="cash-entry-actions cash-entry-action"><button class="secondary" type="button">Corregir fecha</button><button class="secondary" type="button">Corregir servicio</button></div></div>`).join('')
-    node('cash-period-expense-list').innerHTML = Array.from({ length: 30 }, (_, i) => `<div class="cash-period-expense-row" data-qa-row="period-${i}"><div><strong>Gasto ${i + 1}</strong><p>${longName}</p></div><span>Efectivo</span><span>17/10/2026</span><strong>$ 5.000</strong></div>`).join('')
+    node('cash-responsible').textContent = 'Matías Grando'
+    node('cash-session-time').textContent = 'Desde 24/9/26, 10:34 p. m.'
+    node('cash-gross').textContent = '$ 506.000'
+    node('cash-method-cash').textContent = '$ 496.000'
+    node('cash-method-transfer').textContent = '$ 10.000'
+    node('cash-outgoing').textContent = '$ 64.000'
+    node('cash-net').textContent = '$ 442.000'
+    node('cash-expected').textContent = '$ 482.000'
+    node('cash-status').classList.add('open')
     node('cash-professional-summary').innerHTML = '<div class="cash-professional-summary-head"><span></span><strong>Profesional</strong><span>Servicios</span><span>Producción</span><span>Comisión</span><span>Pagos</span><strong>Saldo</strong></div>' + Array.from({ length: 20 }, (_, i) => `<div class="cash-professional-summary-row"><button type="button" class="cash-professional-toggle">+</button><strong>Profesional ${i + 1}</strong><span>20</span><span>$ 400.000</span><span>$ 200.000</span><span>$ 100.000</span><strong>$ 100.000</strong></div>`).join('')
     node('cash-professional-entries').innerHTML = Array.from({ length: 20 }, (_, i) => `<div class="cash-professional-movement-row" data-qa-row="professionals-${i}"><span>17/10/2026</span><strong>${longName}</strong><span>Servicio</span><span>Movimiento ${i + 1}</span><strong>$ 20.000</strong><span>Responsable</span></div>`).join('')
     node('cash-treasury-inactive').hidden = true
     node('cash-treasury-operations').hidden = false
     node('cash-treasury-history-panel').hidden = false
-    node('cash-treasury-entries').innerHTML = Array.from({ length: 30 }, (_, i) => `<tr data-qa-row="treasury-${i}"><td>17/10/2026</td><td>Transferencia</td><td>Gasto ${i + 1}</td><td>Insumos</td><td>Proveedor del negocio</td><td>$ 5.000</td><td><button type="button">Corregir fecha</button></td></tr>`).join('')
     const modes = ['day', 'period', 'professionals', 'treasury']
     const activate = (mode: string) => {
       node('cash-dashboard').hidden = mode !== 'day'
@@ -50,8 +228,17 @@ try {
     for (const mode of modes) node('cash-view-' + mode).addEventListener('click', () => activate(mode))
     activate('day')
   })
+  await page.addScriptTag({ content: dayFixture + "document.querySelectorAll('.cash-entry').forEach((row, i) => row.dataset.qaRow = 'day-' + i)" })
+  await page.evaluate(financeFixture)
+  await page.evaluate(() => {
+    for (const [id, prefix] of [['cash-period-expense-list', 'period'], ['cash-treasury-entries', 'treasury']]) {
+      document.getElementById(id)!.querySelectorAll(id === 'cash-treasury-entries' ? 'tr' : 'tbody tr').forEach((row, i) => (row as HTMLElement).dataset.qaRow = prefix + '-' + i)
+    }
+  })
+  await page.evaluate(treasuryDrawerFixture)
   if (output) await mkdir(output, { recursive: true })
-  for (const [width, height] of sizes) {
+  const selectedSizes = process.argv.includes('--treasury-only') ? [[390, 844], [1440, 900]] : sizes
+  for (const [width, height] of selectedSizes) {
     await page.setViewportSize({ width, height })
     const label = `${width}x${height}`
     const view = page.locator('#cash-register-view')
@@ -65,31 +252,53 @@ try {
     await page.locator('#cash-view-treasury').focus()
     const focused = await page.locator('#cash-view-treasury').boundingBox()
     assert.ok(focused && focused.x >= tabBounds.x - 1 && focused.x + focused.width <= tabBounds.x + tabBounds.width + 1, 'el foco desplaza y revela la última pestaña en ' + label)
+    let sharedChrome: Record<string, unknown> | undefined
     for (const mode of ['day', 'period', 'professionals', 'treasury']) {
       await view.evaluate((element: HTMLElement) => { element.scrollTop = 0 })
       await page.locator('#cash-view-' + mode).click()
+      const chrome = await page.evaluate(() => {
+        const shell = document.querySelector('.cash-shell') as HTMLElement
+        const title = document.querySelector('.cash-header h2') as HTMLElement
+        const icon = document.querySelector('.cash-header .cash-day-icon') as HTMLElement
+        const tabIcons = Array.from(document.querySelectorAll('.cash-view-switch .cash-day-only-icon')).filter(element => element.getClientRects().length)
+        return { width: shell.getBoundingClientRect().width, titleSize: getComputedStyle(title).fontSize, headerIcon: icon.getBoundingClientRect().width, tabIcons: tabIcons.length }
+      })
+      assert.ok(chrome.headerIcon > 0, mode + ': el icono del encabezado permanece visible en ' + label)
+      assert.equal(chrome.tabIcons, 4, mode + ': las cuatro pestañas conservan sus iconos en ' + label)
+      if (!sharedChrome) sharedChrome = chrome
+      else assert.deepEqual(chrome, sharedChrome, mode + ': Caja conserva ancho, tipografía e iconos al cambiar de pestaña en ' + label)
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, mode + ': sin scroll global accidental en ' + label)
       const offscreenControls = await page.locator('.cash-shell :is(input, select, textarea, button)').evaluateAll((elements: HTMLElement[]) => elements.filter(element => {
-        if (!element.getClientRects().length || element.closest('.cash-view-switch, .cash-today-table-wrap, .cash-professional-table')) return false
+        if (!element.getClientRects().length || element.closest('.cash-view-switch, .cash-today-table-wrap, .cash-professional-table, .cash-table-scroll')) return false
         const rect = element.getBoundingClientRect()
         return rect.x < -1 || rect.right > innerWidth + 1
       }).map(element => element.id || element.className))
       assert.deepEqual(offscreenControls, [], mode + ': filtros y acciones dentro del ancho en ' + label)
       const clippedButtons = await page.locator('.cash-shell button').evaluateAll((elements: HTMLElement[]) => elements.filter(element => element.getClientRects().length && !element.closest('.cash-professional-table, .cash-today-table-wrap') && element.scrollWidth > element.clientWidth + 1).map(element => element.id || element.textContent))
       assert.deepEqual(clippedButtons, [], mode + ': los botones conservan el texto legible en ' + label)
-      if (mode === 'day' && width <= 560) assert.ok((await page.locator('.cash-toolbar > label').boundingBox())!.height < 150, 'el selector de jornada no hereda una altura de columna excesiva en ' + label)
+      if (mode === 'day') {
+        if (width <= 560) assert.ok((await page.locator('.cash-toolbar > label').boundingBox())!.height < 150, 'el selector de jornada no hereda una altura de columna excesiva en ' + label)
+        const metricView = mode === 'day' ? '#cash-dashboard' : mode === 'period' ? '#cash-period-view' : '#cash-treasury-view'
+        const wrappedAmounts = await page.locator(metricView + ' .cash-summary-card strong').evaluateAll((amounts: HTMLElement[]) => amounts.filter(amount => {
+          if (!amount.getClientRects().length) return false
+          const range = document.createRange()
+          range.selectNodeContents(amount)
+          return range.getClientRects().length > 1 || amount.scrollWidth > amount.clientWidth + 1
+        }).map(amount => amount.id))
+        assert.deepEqual(wrappedAmounts, [], 'los importes no se parten en ' + label)
+      }
       const before = await view.evaluate((element: HTMLElement) => element.scrollTop)
       const region = await view.boundingBox()
       await page.mouse.move(region!.x + region!.width / 2, Math.min(height - 20, region!.y + region!.height / 2))
       await page.mouse.wheel(0, 2000)
       await page.waitForFunction((start: number) => document.getElementById('cash-register-view')!.scrollTop > start, before)
       await view.evaluate((element: HTMLElement) => { element.scrollTop = element.scrollHeight })
-      const rowIndex = mode === 'professionals' ? 19 : 29
+      const rowIndex = mode === 'treasury' ? 4 : mode === 'professionals' ? 19 : 29
       const last = await page.locator(`[data-qa-row="${mode}-${rowIndex}"]`).boundingBox()
       assert.ok(last && last.y >= -1 && last.y < height, mode + ': último registro alcanzable con scroll en ' + label)
       assert.ok(await view.evaluate((element: HTMLElement) => element.scrollHeight > element.clientHeight), mode + ': Caja conserva un área de scroll propia en ' + label)
-      if (mode === 'professionals' || mode === 'treasury') {
-        const table = page.locator(mode === 'professionals' ? '#cash-professional-entries' : '#cash-treasury-history-panel .cash-today-table-wrap')
+      {
+        const table = page.locator(mode === 'day' ? '#cash-entry-list .cash-table-scroll' : mode === 'professionals' ? '#cash-professional-entries' : mode === 'period' ? '#cash-period-expense-list .cash-table-scroll' : '#cash-treasury-history-panel .cash-today-table-wrap')
         const overflow = await table.evaluate((element: HTMLElement) => ({ scroll: element.scrollWidth, client: element.clientWidth, overflow: getComputedStyle(element).overflowX }))
         if (overflow.scroll > overflow.client + 1) {
           assert.ok(['auto', 'scroll'].includes(overflow.overflow), mode + ': tabla admite scroll horizontal en ' + label)
@@ -97,12 +306,76 @@ try {
           assert.ok(await table.evaluate((element: HTMLElement) => element.scrollLeft > 0), mode + ': últimas columnas accesibles en ' + label)
         }
       }
-      if (output && [390, 768, 1440].includes(width)) {
+      if (output && [390, 1440].includes(width) && mode === 'treasury') {
         await view.evaluate((element: HTMLElement) => { element.scrollTop = 0 })
         await page.screenshot({ path: join(output, `caja-${mode}-${label}.png`) })
       }
     }
     console.log('OK Caja adaptable: cuatro pestañas, scroll vertical, tablas y filtros en ' + label)
+  }
+  for (const [width, height] of [[1440, 900], [390, 844]]) {
+    await page.setViewportSize({ width, height })
+    await page.locator('#cash-view-treasury').click()
+    const view = page.locator('#cash-register-view')
+    const list = page.locator('#cash-treasury-entries tr')
+    assert.equal(await list.count(), 5)
+    await view.evaluate((element: HTMLElement) => { element.scrollTop = element.scrollHeight })
+    if (output) await page.screenshot({ path: join(output, 'tesoreria-lista5-' + width + '.png') })
+    await page.evaluate(() => {
+      ;(globalThis as any).firstTreasuryRow = document.querySelector('#cash-treasury-entries tr')
+      ;(globalThis as any).treasuryRequestCount = (globalThis as any).financeRequests.length
+    })
+    await page.evaluate(() => (globalThis as any).treasuryQa.loadTreasury({ append: true }))
+    assert.equal(await list.count(), 15)
+    assert.ok(await page.evaluate(() => (globalThis as any).firstTreasuryRow === document.querySelector('#cash-treasury-entries tr')), 'Ver más conserva el primer nodo')
+    assert.ok(await page.evaluate(() => (globalThis as any).financeRequests.length === (globalThis as any).treasuryRequestCount), '5→15 sin solicitud')
+    const ctaSize = await page.locator('#cash-treasury-movement-open').evaluate(element => {
+      const style = getComputedStyle(element)
+      const canvas = document.createElement('canvas').getContext('2d')!
+      canvas.font = style.font
+      return { width: element.getBoundingClientRect().width, text: canvas.measureText(element.textContent!.trim()).width }
+    })
+    assert.ok(ctaSize.width <= ctaSize.text + 70, 'Registrar movimiento conserva ancho compacto en ' + width + ': ' + JSON.stringify(ctaSize))
+    await page.locator('#cash-treasury-movement-open').click()
+    const panel = page.locator('#cash-treasury-movement-panel')
+    await page.waitForTimeout(260)
+    const bounds = (await panel.boundingBox())!
+    assert.equal(Math.round(bounds.width), width <= 560 ? width : 420)
+    const footer = (await page.locator('#cash-treasury-movement-panel .crm-drawer-footer').boundingBox())!
+    assert.ok(footer.y + footer.height <= height + 1 && footer.y >= 0, 'Confirmación fija dentro del viewport')
+    assert.ok(footer.width >= bounds.width - 1, 'El formulario estira la confirmación a todo el panel')
+    assert.ok((await page.locator('#cash-treasury-movement-panel .crm-drawer-body').boundingBox())!.width >= bounds.width - 1, 'El cuerpo conserva el ancho completo del panel')
+    await page.locator('#cash-treasury-outflow-account').selectOption('cash')
+    await page.locator('#cash-treasury-outflow-category').selectOption('products')
+    await page.locator('#cash-treasury-outflow-subcategory').selectOption('color')
+    await page.locator('#cash-treasury-outflow-description').fill('Insumos de prueba')
+    await page.locator('#cash-treasury-outflow-amount').fill('5000')
+    await page.locator('#cash-treasury-movement-close').click()
+    assert.equal(await page.locator('#cash-treasury-movement-drawer').getAttribute('hidden'), null, 'La guardia conserva el panel')
+    assert.ok(await page.evaluate(() => (globalThis as any).treasuryQa.confirmations > 0))
+    await page.locator('#cash-treasury-counterparty-add').click()
+    assert.ok(await page.locator('#cash-treasury-counterparty-name').evaluate(element => element === document.activeElement))
+    const layers = await page.evaluate(() => ['cash-treasury-movement-drawer', 'cash-treasury-counterparty-dialog'].map(id => Number(getComputedStyle(document.getElementById(id)!).zIndex)))
+    assert.ok(layers[1] > layers[0], 'Destinatario por encima del Drawer')
+    await page.keyboard.press('Escape')
+    assert.equal(await page.locator('#cash-treasury-counterparty-dialog').getAttribute('hidden'), '')
+    assert.equal(await page.locator('#cash-treasury-movement-drawer').getAttribute('hidden'), null)
+    assert.ok(await page.locator('#cash-treasury-counterparty-add').evaluate(element => element === document.activeElement))
+    await page.locator('#cash-treasury-movement-panel .crm-drawer-body').evaluate((element: HTMLElement) => { element.scrollTop = element.scrollHeight })
+    const fixedFooter = (await page.locator('#cash-treasury-movement-panel .crm-drawer-footer').boundingBox())!
+    assert.equal(Math.round(fixedFooter.y), Math.round(footer.y))
+    if (output) await page.screenshot({ path: join(output, 'tesoreria-panel-' + width + '.png') })
+    await page.evaluate(() => { (globalThis as any).treasuryQa.failNext = true })
+    assert.deepEqual(await page.locator('#cash-treasury-outflow-form :invalid').evaluateAll(fields => fields.map(field => (field as HTMLElement).id)), [], 'El formulario conserva sus validaciones y campos completos')
+    await page.locator('#cash-treasury-movement-submit').click()
+    await page.waitForFunction(() => document.getElementById('cash-treasury-outflow-feedback')!.textContent!.includes('Saldo insuficiente'))
+    assert.equal(await page.locator('#cash-treasury-outflow-amount').inputValue(), '5000')
+    assert.equal(await page.locator('#cash-treasury-movement-drawer').getAttribute('hidden'), null)
+    await page.locator('#cash-treasury-movement-submit').click()
+    await page.locator('#cash-treasury-movement-drawer').waitFor({ state: 'hidden' })
+    assert.ok(await page.evaluate(() => (globalThis as any).treasuryQa.notice.includes('registrado')))
+    await page.evaluate(async () => { delete (globalThis as any).treasuryQa.state.cashRegister.treasuryList; await (globalThis as any).treasuryQa.loadTreasury({ refresh: true }) })
+    console.log('OK Tesorería ' + width + ': lista 5/15, Drawer real, guardia, destinatario, footer, error y éxito')
   }
   await page.evaluate(() => {
     document.body.dataset.currentSection = 'settlements'

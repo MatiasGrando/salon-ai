@@ -261,6 +261,7 @@ export interface CashTransactionRepository {
   }): Promise<boolean>
   resolveAppointmentAccount(businessId: string, appointmentId: string): Promise<AppointmentAccountRecord | null>
   listAppointmentFinanceSummaryRows(businessId: string, appointmentIds: string[]): Promise<AppointmentFinanceSummaryRow[]>
+  lockAppointmentForProfessional(businessId: string, appointmentId: string, professionalId: string): Promise<boolean>
   lockAppointmentAccount(businessId: string, appointmentId: string): Promise<AppointmentAccountRecord | null>
   listAccountEntries(businessId: string, accountId: string): Promise<AppointmentAccountEntryRecord[]>
   resolveAccountProductSubtotal(businessId: string, accountId: string): Promise<number>
@@ -736,6 +737,17 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       GROUP BY link."appointmentId", account."id", account."businessId", account."pricingMode",
         account."agreedAmount", account."originalAmount", account."minimumAmount", account."discountAmount"
     `)
+  }
+
+  async lockAppointmentForProfessional(businessId: string, appointmentId: string, professionalId: string) {
+    const rows = await this.transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT appointment."id" FROM "Appointment" AS appointment
+      JOIN "Professional" AS professional ON professional."id" = appointment."professionalId"
+      WHERE appointment."id" = ${appointmentId} AND appointment."professionalId" = ${professionalId}
+        AND professional."businessId" = ${businessId}
+      FOR UPDATE OF appointment
+    `)
+    return rows.length === 1
   }
 
   async lockAppointmentAccount(businessId: string, appointmentId: string) {

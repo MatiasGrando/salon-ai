@@ -1,5 +1,35 @@
 # Carga prioritaria de Agenda, Clientes y Caja
 
+### Cambios de turnos sin recargar la Agenda
+
+- [x] A8. Al crear, editar, mover, cancelar o cambiar el estado de un turno y al recibir un aviso `appointment_changed`, actualizar el turno identificado. Conservar los estados de pago ya visibles, el rango, el filtro de profesional y los demás turnos. Probar el resultado con una consulta puntual lenta o fallida y con avisos repetidos o tardíos.
+
+El guardado actual descarta la respuesta, espera una recarga de turnos y bloqueos y el aviso en tiempo real puede pedir otro rango. El rango llega sin resumen de pagos y pierde temporalmente las etiquetas. Mantener la primera carga liviana. Reusar la consulta autorizada de turnos y su filtro interno por ID para pedir un solo resultado canónico con sus permisos de Caja. Ajustar las copias del rango cargado sin borrar el resto y preservar el refresco completo en recuperación de conexión o cambios cuya identidad de turno no se conoce. El fallo de cobro en reservas de Instagram queda para un trabajo aparte.
+
+Ruta directa delegada, por mapa de interfaz, servicio, ruta y eventos, y escritores acotados de servidor e interfaz. TDD estricto según `openspec/config.yaml`, contratos offline de ruta y navegación/actualización de Agenda, sintaxis CRM, estados de turno, precarga, alcance y UTF-8. Forecast 230–390 líneas, estrategia de entrega `ask-on-risk`, base `740c094`. Espejo Engram pendiente.
+
+RED: el contrato de eventos detectó que `appointment_changed` todavía recargaba el rango. El contrato de ruta detectó que la consulta omitía `appointmentId`. GREEN: consulta puntual con permisos existentes, caché por rango actualizada sin descartar los demás turnos, resumen financiero conservado cuando falta ese campo y descarte de respuestas fuera del comercio. La prueba con diferimientos verificó avisos repetidos, fallos de red y cambio de comercio. Pasaron también precarga, arrastre, borrado optimista, estados de turno, alcance y arranque de Agenda. Validación en producción pendiente.
+
+A8 quedó en `e5f6d7f`. Evaluación local media, 370 líneas, por debajo del umbral. Pasaron sintaxis de CRM, UTF-8 y diff. Las pruebas usaron datos ficticios. Siguiente paso: verificar un alta en producción después de una publicación autorizada.
+
+### Navegación durante la carga inicial
+
+- [x] A7. Activar de inmediato la sección autorizada que el usuario elija mientras se carga Agenda. Mostrar la carga dentro de Ajustes, Marketing/Instagram o Cuentas, y reutilizar el indicador existente de Caja. Evitar que una respuesta tardía cambie la sección o el comercio activo.
+
+El bloqueo ocurre en `setSection`, que espera `ensureWorkspaceDetails` antes de actualizar la interfaz. El cambio conserva Agenda como vista inicial y mantiene la preparación compartida de datos antes de habilitar los controles que la requieren. Ruta delegada directa por mapa de CRM, agenda y Caja y por cambio de fuente y prueba. TDD estricto según `openspec/config.yaml`; contrato VM de navegación con promesas retenidas, sintaxis CRM, vista inicial de Agenda, alcance de Caja y UTF-8. Forecast A7: 60–180 líneas. Entrega `ask-on-risk`, basada en el HEAD actual de la rama de trabajo. Espejo Engram pendiente.
+
+RED: el contrato VM con `setSection` real del HTML servido dejó Ajustes en Agenda mientras `ensureWorkspaceDetails` estaba pendiente. GREEN: activa en el momento la sección, muestra estado accesible con contenido protegido y reintento, solo ejecuta sus cargas al completar los datos y descarta una activación obsoleta por navegación/comercio. La entrada lista limpia estados viejos; la pestaña de Marketing se inicializa una vez y conserva su subvista. Se conserva el indicador propio de Caja y se evita que datos antiguos de horarios sobrescriban los cargados por Agenda. Pasaron el contrato A7, sintaxis CRM, vista inicial y alcance de Agenda. Espejo Engram pendiente.
+
+A7 quedó en `1cbfe1a`. Se verificó la transición Ajustes → Instagram → Caja con la carga común pendiente y la recepción tardía sin saltos. Pasaron también los contratos de precarga de Agenda, alcance y carga de Caja, interfaz de Instagram, sintaxis e interactividad del CRM, UTF-8 y `git diff --check`. Evaluación local media, 245 líneas, por debajo del umbral. Pendiente comprobar en producción cuando se autorice la publicación.
+
+### Desplegable Staff en Agenda
+
+- [x] A9. Reemplazar «Filtros» por el desplegable «Staff» en la barra, eliminar el filtro de servicio y conservar la selección por profesional en el menú lateral y en la agenda. Verificar alcance propio y general, y la interacción en pantalla angosta.
+
+Ruta delegada directa para mapa y regresión. TDD STRICT heredado. Runner: `node node_modules/tsx/dist/cli.mjs scripts/staff-agenda-own-visibility-test.ts`. Forecast 100–180 líneas. Espejo Engram pendiente por acceso a la base local.
+
+RED por ausencia de Staff; GREEN en visibilidad, selección, arrastre, precarga, alcance, sintaxis y codificación. Chrome aislado comprobó foco, ancho y selección a 320, 390, 490 y 1100 px. La suite de persistencia pasó 12 casos y conserva un fallo previo en su fixture por `crmWorkspaceVersion` ausente. Pendiente verificar en CRM desplegado.
+
 ### Selector de profesionales al bloquear agenda
 
 - [x] A6. Abrir «Bloquear agenda» desde el arranque en frío con el catálogo que ya carga Agenda. Conservar la preselección desde una columna y respetar los permisos. Comprobar que el panel espera si falta el catálogo, sin agregar consultas.

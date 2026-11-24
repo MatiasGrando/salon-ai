@@ -78,9 +78,15 @@ try {
   prismaClient.appointment.findMany = async () => hasOverlap
     ? [{ startAt: new Date('2026-08-14T14:00:00.000Z'), totalDurationMinutes: 30 }]
     : []
-  prismaClient.$queryRaw = async (query: any) => query.strings.join('').includes('FROM "Appointment"')
-    ? [{ id: 'appointment-1', professionalId: 'professional-1' }]
-    : [{ locked: 1 }]
+  prismaClient.$queryRaw = async (query: { sql: string }) => {
+    if (query.sql.includes('AS "overlaps"')) {
+      assert.match(query.sql, /a\."status" = 'COMPLETED'/)
+      assert.doesNotMatch(query.sql, /FROM "BookingVisit"/)
+      return [{ overlaps: hasOverlap }]
+    }
+    if (query.sql.includes('FROM "Appointment"')) return [{ id: 'appointment-1', professionalId: 'professional-1' }]
+    return [{ locked: 1 }]
+  }
   prismaClient.appointment.update = async (input: any) => {
     updateInput = input
     return { ...existingAppointment, ...input.data }
@@ -111,14 +117,21 @@ try {
 
   service.professionalOffersServices = async () => true
   offersServices = true
+  let unlockedAvailabilityChecks = 0
+  const checkOutsideTransaction = (result: boolean) => async () => {
+    unlockedAvailabilityChecks += 1
+    return result
+  }
   insideBusinessHours = false
   insideProfessionalHours = false
   hasBlock = true
   hasOverlap = true
-  service.isInsideBusinessHours = async () => false
-  service.isInsideProfessionalHours = async () => false
-  service.hasScheduleBlockOverlap = async () => true
-  service.hasAppointmentOverlap = async () => true
+  service.isInsideBusinessHours = checkOutsideTransaction(false)
+  service.isInsideProfessionalHours = checkOutsideTransaction(false)
+  service.hasScheduleBlockOverlap = checkOutsideTransaction(true)
+  service.hasAppointmentOverlap = checkOutsideTransaction(true)
+
+  const phases: string[] = []
 
   const conflicted = await service.update({
     id: 'appointment-1',
@@ -127,7 +140,7 @@ try {
     serviceId: 'cut',
     serviceIds: ['cut', 'color'],
     startAt: '2026-08-14T14:00:00.000Z'
-  })
+  }, undefined, (phase: string) => phases.push(phase))
   assert.equal(conflicted.ok, false)
   assert.equal(conflicted.code, 'APPOINTMENT_AVAILABILITY_CONFLICT')
   assert.equal(conflicted.forceable, true)
@@ -136,6 +149,8 @@ try {
     ['OUTSIDE_BUSINESS_HOURS', 'OUTSIDE_PROFESSIONAL_HOURS', 'SCHEDULE_BLOCK', 'APPOINTMENT_OVERLAP']
   )
   assert.equal(updateInput, null)
+  assert.equal(unlockedAvailabilityChecks, 0, 'usar solo la disponibilidad validada con bloqueos')
+  assert.deepEqual(phases, ['precheck', 'transaction-start', 'availability'])
 
   const forced = await service.update({
     id: 'appointment-1',

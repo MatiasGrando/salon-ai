@@ -53,6 +53,7 @@ export async function startBarberWorkerLoops(input: {
   if (input.scope.mode !== 'include' || input.scope.businessId !== BARBER_DEMO_BUSINESS_ID) {
     throw new Error('Barber worker scope must include Barber exclusively')
   }
+  const whatsappScope: BotWorkerScope = { ...input.scope, channels: ['WHATSAPP'] }
   const worker = input.startWorker ?? startPostgresWorkerLoop
   const sender = input.startSender ?? startOutboxSenderLoop
   const sharedWorker = {
@@ -65,7 +66,7 @@ export async function startBarberWorkerLoops(input: {
     },
     handlerSettlesJob: true, queueMilestones: input.queueMilestones, wakeSignal: input.wakeSignals?.jobs,
     ...(input.monotonicBoundaries ? { monotonicBoundaries: true } : {}),
-    scope: input.scope,
+    scope: whatsappScope,
     ...(input.onError ? { onError: input.onError } : {}),
     ...(input.onWorkerDiagnostic ? { onDiagnostic: input.onWorkerDiagnostic } : {})
   }
@@ -74,7 +75,7 @@ export async function startBarberWorkerLoops(input: {
     loops.push(worker(sharedWorker))
     loops.push(worker({ ...sharedWorker, maintenanceEnabled: false }))
     loops.push(sender({
-      client: input.client, provider: input.provider, scope: input.scope,
+      client: input.client, provider: input.provider, scope: whatsappScope,
       wakeSignal: input.wakeSignals?.outbox, queueMilestones: input.queueMilestones,
       ...(input.monotonicBoundaries ? { monotonicBoundaries: true } : {}),
       ...(input.onError ? { onError: input.onError } : {}),

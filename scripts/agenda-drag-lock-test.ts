@@ -30,17 +30,19 @@ function node() {
 }
 function harness(storage = new Map<string, string>()) {
   const state: any = { currentUser: { id: 'user-1', role: 'BUSINESS_ADMIN' }, businessId: 'shop-1', business: { id: 'shop-1' }, agendaDragLocked: true, agendaDragLockScope: null, agendaDragLockRevision: 0,
-    agendaPointerDrag: null, agendaPendingAppointmentIds: new Set(), agendaAppointments: [{ id: 'appointment', customerId: 'customer', professionalId: 'p1', serviceId: 's1', serviceItems: [], startAt: '2026-10-17T09:00:00' }], professionals: [{ id: 'p1', name: 'One' }], agendaDidDrag: false }
+    agendaPointerDrag: null, agendaPendingMoves: new Map(), agendaAppointments: [{ id: 'appointment', customerId: 'customer', professionalId: 'p1', serviceId: 's1', serviceItems: [], startAt: '2026-10-17T09:00:00', financeSummary: { state: 'PAID' } }], professionals: [{ id: 'p1', name: 'One' }, { id: 'p2', name: 'Two' }], agendaDidDrag: false }
   const listeners = new Map<string, Function>(), checkbox = node(), grid = node(), eventNode = node(), calls: any[] = []
-  const els: any = { agendaGridWrap: grid }
+  const els: any = { agendaGridWrap: grid, appShell: { dataset: { section: 'agenda' } } }
   grid.querySelector = ((selector: string) => selector === '[data-agenda-drag-lock]' ? checkbox : null) as any
   const context: any = vm.createContext({ state, els, localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) },
     window: { addEventListener: (type: string, handler: Function) => listeners.set(type, handler), removeEventListener: (type: string) => listeners.delete(type) },
     document: { hidden: false, body: { appendChild() {} }, addEventListener() {}, removeEventListener() {}, querySelectorAll: () => [] }, setTimeout: (callback: Function) => callback(),
     canEditAppointments: () => state.currentUser?.canEditAppointments !== false, showCrmToast() {}, createAgendaDragGhost: () => node(), moveAgendaDragGhost() {}, updateAgendaPointerTarget() {},
     appointmentServiceIds: () => ['s1'], parseDateKey: (value: string) => new Date(value + 'T00:00:00'), renderAgenda() {}, formatDateTime: (value: Date) => value.toISOString(), canForceAppointmentOverrides: () => true,
+    crmWorkspaceVersion: 1, agendaOwnProfessionalId: () => null, invalidateCustomerOverview() {},
+    applyAgendaAppointmentResult: (id: string, result: any) => { state.agendaAppointments = state.agendaAppointments.map((item: any) => item.id === id ? result : item) },
     requestCrmConfirmation: async () => true, getJson: async (url: string, input: any) => { calls.push({ url, payload: JSON.parse(input.body) }); return {} } })
-  vm.runInContext(functions([...dragFunctions, 'bindAgendaMobileControls']), context)
+  vm.runInContext(functions([...dragFunctions, 'bindAgendaMobileControls', 'filteredAgendaAppointmentsForRange']), context)
   context.bindAgendaMobileControls(88, { start: 480, end: 1200 })
   const pointer = (type = 'mouse') => ({ button: 0, pointerId: 1, pointerType: type, clientX: 10, clientY: 10, preventDefault() {} })
   const choose = (locked: boolean) => checkbox.handlers.change!({ target: { checked: locked } })
@@ -157,6 +159,46 @@ for (const action of ['handleAgendaPointerMove', 'handleAgendaPointerEnd']) {
   assert.equal(h.calls.length, 0)
 }
 
+for (const result of ['saved', 'rejected', 'switched', 'unknown']) {
+  const h = harness()
+  h.choose(false)
+  let resolve!: (value: any) => void
+  let reject!: (reason: Error) => void
+  h.context.getJson = (url: string, input: any) => {
+    h.calls.push({ url, payload: JSON.parse(input.body) })
+    return new Promise((accept, fail) => { resolve = accept; reject = fail })
+  }
+  const original = h.state.agendaAppointments[0]
+  const target = new Date('2026-10-17T10:00:00').toISOString()
+  const checked: string[] = []
+  h.context.refreshAgendaAppointment = async (id: string) => {
+    checked.push(id)
+    h.context.applyAgendaAppointmentResult(id, { ...original, startAt: target, professionalId: 'p2' })
+  }
+  const visibleAppointment = () => h.context.filteredAgendaAppointmentsForRange(
+    new Date('2026-10-17T00:00:00'), new Date('2026-10-18T00:00:00')
+  )[0]
+  const saving = h.context.moveAgendaAppointment('appointment', '2026-10-17', 600, 'p2')
+  assert.equal(visibleAppointment().startAt, target, 'Agenda muestra el nuevo horario antes de que responda PATCH')
+  assert.equal(visibleAppointment().professionalId, 'p2')
+  assert.equal(visibleAppointment().financeSummary, original.financeSummary)
+  assert.equal(h.state.agendaAppointments[0], original, 'El turno confirmado sigue intacto mientras se guarda')
+  await h.context.moveAgendaAppointment('appointment', '2026-10-17', 660, 'p2')
+  assert.equal(h.calls.length, 1, 'Un turno con un movimiento pendiente no se vuelve a enviar')
+  if (result === 'switched') {
+    h.context.crmWorkspaceVersion += 1
+    assert.equal(visibleAppointment().startAt, original.startAt, 'El movimiento pendiente no cambia la vista de otro workspace')
+  }
+  if (result === 'rejected') reject(Object.assign(new Error('Movimiento rechazado'), { status: 409 }))
+  else if (result === 'unknown') reject(Object.assign(new Error('Error de servidor'), { status: 503 }))
+  else resolve({ professionalId: 'p2', startAt: target })
+  await saving
+  assert.deepEqual(checked, result === 'unknown' ? ['appointment'] : [], 'una respuesta incierta vuelve a consultar solo el turno')
+  assert.equal(visibleAppointment().startAt, ['saved', 'unknown'].includes(result) ? target : original.startAt)
+  assert.equal(h.state.agendaPendingMoves.size, 0)
+  assert.equal(h.calls.length, 1)
+}
+
 for (const pauseAt of [1, 2]) {
   for (const cancel of ['lock', 'lockThenUnlock', 'permission', 'scope']) {
     const h = harness()
@@ -178,7 +220,7 @@ for (const pauseAt of [1, 2]) {
     resolve(true)
     await pending
     assert.equal(h.calls.length, 1, 'no forzar tras cancelar en confirmación ' + pauseAt + ': ' + cancel)
-    assert.equal(h.state.agendaPendingAppointmentIds.size, 0)
+    assert.equal(h.state.agendaPendingMoves.size, 0)
   }
 }
 {
@@ -199,7 +241,7 @@ console.log('OK Agenda drag lock: punteros, preferencias aisladas, cancelación,
 if (process.env.CRM_QA_BROWSER_MODULE) {
   const { chromium } = await import(pathToFileURL(process.env.CRM_QA_BROWSER_MODULE).href)
   const browser = await chromium.launch({ channel: process.env.CRM_QA_BROWSER_CHANNEL || 'chrome', headless: true })
-  const browserFunctions = [...dragFunctions, 'bindAgendaMobileControls', 'renderAgendaMobileThreeDay', 'renderAgendaProfessionalDateCorner', 'renderAgendaProfessionalDayHeader', 'renderAgendaProfessionalDayColumn', 'renderAgendaMobileDayHeader', 'renderAgendaMobileDayColumn', 'renderAgendaMobileEvent', 'scrollAgendaMobileToWorkingTime', 'bindAgendaProfessionalHorizontalDrag', 'agendaRangeGestureIntent', 'createAgendaDragGhost', 'moveAgendaDragGhost', 'updateAgendaPointerTarget']
+  const browserFunctions = [...dragFunctions, 'isOwnAgendaScope', 'agendaOwnProfessionalId', 'agendaVisibleProfessionals', 'bindAgendaMobileControls', 'renderAgendaMobileThreeDay', 'renderAgendaProfessionalDateCorner', 'renderAgendaProfessionalDayHeader', 'renderAgendaProfessionalDayColumn', 'renderAgendaMobileDayHeader', 'renderAgendaMobileDayColumn', 'renderAgendaMobileEvent', 'scrollAgendaMobileToWorkingTime', 'bindAgendaProfessionalHorizontalDrag', 'agendaRangeGestureIntent', 'createAgendaDragGhost', 'moveAgendaDragGhost', 'updateAgendaPointerTarget']
   const styles = html.match(/<style>([\s\S]*?)<\/style>/)![1]
   const fixture = '<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>' + styles + '</style><body data-current-section="agenda"><main style="height:100dvh;width:100%;min-width:0"><div id="agenda-qa" style="height:100%;width:100%"></div></main></body></html>'
   try {
@@ -213,10 +255,13 @@ if (process.env.CRM_QA_BROWSER_MODULE) {
       await page.addScriptTag({ content: `
         const state = ${JSON.stringify(harness().state)};
         state.agendaSelectedDate = new Date('2026-10-17T00:00:00'); state.agendaMonthDate = new Date(state.agendaSelectedDate);
-        state.agendaViewDays = 1; state.agendaPendingAppointmentIds = new Set(); state.agendaMobileScrollMinute = null;
+        state.agendaViewDays = 1; state.agendaPendingMoves = new Map(); state.agendaMobileScrollMinute = null;
         state.professionals[0].services = [{ id: 's1' }];
         state.agendaAppointments[0].totalDurationMinutes = 60;
-        const els = { agendaGridWrap: document.getElementById('agenda-qa'), agendaProfessional: { value: '' }, agendaService: { value: '' }, agendaRange: {}, agendaToday: {} };
+        const els = { agendaGridWrap: document.getElementById('agenda-qa'), appShell: { dataset: { section: 'agenda' } }, agendaProfessional: { value: '' }, agendaRange: {}, agendaToday: {} };
+        const crmWorkspaceVersion = 1;
+        const invalidateCustomerOverview = () => {};
+        const applyAgendaAppointmentResult = (id, result) => { state.agendaAppointments = state.agendaAppointments.map(item => item.id === id ? result : item); };
         const qa = { opens: 0, calls: [] };
         const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
         const startOfDay = day => new Date(day.getFullYear(), day.getMonth(), day.getDate());
@@ -236,7 +281,7 @@ if (process.env.CRM_QA_BROWSER_MODULE) {
         const canEditAppointments = () => state.currentUser.canEditAppointments !== false; const canCreateAppointments = () => true; const canManageScheduleBlocks = () => true;
         const canForceAppointmentOverrides = () => true; const showCrmToast = () => {}; const requestCrmConfirmation = async () => true;
         const openAppointmentDialog = () => { qa.opens++; }; const openMobileDrawer = () => {}; const openAgendaBlockPopover = () => {};
-        const renderAgendaDropPreview = () => {}; const renderAgendaMobileMonthPanel = () => ''; const renderAgendaMobileFilterPanel = () => '';
+        const renderAgendaDropPreview = () => {}; const renderAgendaMobileMonthPanel = () => ''; const renderAgendaStaffSelect = () => '';
         const startAgendaRangeSelection = () => {}; const selectAgendaCellRange = () => {}; const deleteScheduleBlock = () => {};
         const renderAgendaProfessionalControls = () => {}; const rememberAgendaProfessionalFilter = () => {}; const loadAgenda = async () => {};
         const navigateAgendaToDate = async day => { state.agendaSelectedDate = day; renderAgenda(); };
@@ -245,6 +290,7 @@ if (process.env.CRM_QA_BROWSER_MODULE) {
         ${functions(browserFunctions)}
         renderAgenda();
       ` })
+      assert.deepEqual(errors, [], 'browser fixture must render without JavaScript errors at ' + width)
       const checkbox = page.getByRole('checkbox', { name: 'Bloquear arrastre de turnos' })
       assert.equal(await checkbox.isChecked(), true)
       await checkbox.focus()

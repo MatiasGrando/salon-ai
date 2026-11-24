@@ -308,7 +308,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
   }
   if (botOptionsConfig.senderEnabled||instagramWorkerScope) {
     const whatsappProvider=new MetaOutboxProvider(),instagramProvider=new InstagramOutboxProvider({client:prisma})
-    const provider:OutboxProvider=options.outboxProvider??{send:(value,signal,diagnostic)=>(value.payload as {channel?:unknown})?.channel==='INSTAGRAM'?instagramProvider.send(value,signal):whatsappProvider.send(value,signal,diagnostic)}
+    // `context` is attached only by sendClaimedOutbox after it has claimed an
+    // Instagram deployment. It is therefore an authoritative channel boundary;
+    // the persisted payload is not allowed to choose a transport.
+    const provider:OutboxProvider=options.outboxProvider??{send:(value,signal,diagnostic)=>value.context
+      ? instagramProvider.send(value,signal)
+      : whatsappProvider.send(value,signal,diagnostic)}
     for(const scope of [...(botOptionsConfig.senderEnabled?[{...whatsappWorkerScope,channels:['WHATSAPP' as const]}]:[]),...(instagramWorkerScope?[instagramWorkerScope]:[])]) {
     loops.push(startOutboxSenderLoop({
       client: prisma,

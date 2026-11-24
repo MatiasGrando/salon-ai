@@ -1283,6 +1283,7 @@ model User {
   createdBusinesses                Business[]                   @relation("CreatedBusinesses")
   canCreateAppointments            Boolean                      @default(true)
   canEditAppointments              Boolean                      @default(true)
+  canCompleteAppointments          Boolean                      @default(false)
   canCancelAppointments            Boolean                      @default(true)
   canManageScheduleBlocks          Boolean                      @default(true)
   staffProfile                     String                       @default("PROFESSIONAL")

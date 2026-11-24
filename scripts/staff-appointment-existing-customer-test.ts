@@ -179,7 +179,7 @@ try {
     els.appointmentFeedback = { textContent: '' }; els.appointmentDepositPaid = { checked: false }; els.appointmentSubmit = {}
     const state = { currentUser: user, customers: [], professionals: [], services: [service], selected: null, businessId: 'business-a' }
     const context: any = {
-      els, state, event: { preventDefault() {} }, canCreateAppointments: () => true, canEditAppointments: () => false,
+      els, state, crmWorkspaceVersion: 1, event: { preventDefault() {} }, canCreateAppointments: () => true, canEditAppointments: () => false,
       editingAgendaAppointment: () => null, appointmentCustomerChanges: () => ({ name, changed: false }),
       appointmentServicesForProfessional: () => [service], readCreateAppointmentPayment: () => null,
       appointmentDetailsChanged: () => true, setButtonLoading: () => true, closeAppointmentDialog() {},
@@ -187,7 +187,7 @@ try {
       showCrmToast() {}, getJson: async (path: string, input: any) => {
         calls.push({ path, body: input?.body ? JSON.parse(input.body) : null })
         if (path === '/customers') {
-          if (!directoryAllowed) throw new Error('Forbidden customer directory request')
+          if (input?.method !== 'POST' && !directoryAllowed) throw new Error('Forbidden customer directory request')
           return input?.method === 'POST' ? { ...customer, wasExisting: true } : [customer]
         }
         return { conflicts: [] }
@@ -228,11 +228,12 @@ try {
     assert.match(result.feedback, /número.*cliente.*registrado/i)
     assert.equal(result.calls.some(c => c.path === '/customers' || c.path === '/appointments'), false)
   })
-  await test('staff create-customer capability without directory access still uses only Agenda', async () => {
+  await test('staff create-customer capability creates from Agenda without reading the directory', async () => {
     const result = await saveFromUi({ ...staff, canCreateCustomers: true })
     assert.equal(result.feedback, '')
-    assert.deepEqual(result.calls.map(c => c.path), ['/appointments/check-availability', '/appointments'])
-    assert.equal(result.calls[1].body.customerPhone, '11-6431-2742')
+    assert.deepEqual(result.calls.map(c => c.path), ['/appointments/check-availability', '/customers', '/appointments'])
+    assert.equal(result.calls[1].body.name, 'Nombre escrito')
+    assert.equal(result.calls.at(-1)!.body.customerId, customer.id)
   })
   await test('full customer permissions keep the existing customer-selected workflow', async () => {
     const result = await saveFromUi({ ...staff, canCreateCustomers: true, canViewCustomers: true }, 'Nombre escrito', '1164312742', true)

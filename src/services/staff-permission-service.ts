@@ -10,6 +10,7 @@ export type StaffPermissions = {
   agendaScope: StaffAgendaScope
   canCreateAppointments: boolean
   canEditAppointments: boolean
+  canCompleteAppointments: boolean
   canCancelAppointments: boolean
   canManageScheduleBlocks: boolean
   canForceAppointments: boolean
@@ -47,7 +48,7 @@ export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CU
     label: 'Profesional',
     description: 'Ve su propia agenda y puede crear, reprogramar y cancelar sus turnos. No accede a clientes, conversaciones, reportes ni configuraciones.',
     profile: 'PROFESSIONAL',
-    permissions: permissions({ agendaScope: 'OWN', canCreateAppointments: true, canEditAppointments: true, canCancelAppointments: true })
+    permissions: permissions({ agendaScope: 'OWN', canCreateAppointments: true, canEditAppointments: true, canCompleteAppointments: true, canCancelAppointments: true })
   },
   SECRETARY_READ_ONLY: {
     label: 'Secretaria · Solo lectura',
@@ -60,7 +61,7 @@ export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CU
     description: 'Gestiona la agenda completa, clientes, notas, preferencias de contacto y responde conversaciones. No administra bloqueos, señas ni reportes.',
     profile: 'SECRETARY',
     permissions: permissions({
-      agendaScope: 'ALL', canCreateAppointments: true, canEditAppointments: true, canCancelAppointments: true,
+      agendaScope: 'ALL', canCreateAppointments: true, canEditAppointments: true, canCompleteAppointments: true, canCancelAppointments: true,
       canViewCustomers: true, canCreateCustomers: true, canEditCustomers: true,
       canManageCustomerNotes: true, canManageCustomerMarketing: true,
       canViewConversations: true, canReplyConversations: true,
@@ -72,7 +73,7 @@ export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CU
     description: 'Incluye el perfil estándar y además permite administrar bloqueos de agenda y consultar reportes operativos, sin mostrar importes financieros.',
     profile: 'SECRETARY',
     permissions: permissions({
-      agendaScope: 'ALL', canCreateAppointments: true, canEditAppointments: true, canCancelAppointments: true,
+      agendaScope: 'ALL', canCreateAppointments: true, canEditAppointments: true, canCompleteAppointments: true, canCancelAppointments: true,
       canManageScheduleBlocks: true, canViewCustomers: true, canCreateCustomers: true, canEditCustomers: true,
       canManageCustomerNotes: true, canManageCustomerMarketing: true,
       canViewConversations: true, canReplyConversations: true, canViewOperationalReports: true,
@@ -84,7 +85,7 @@ export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CU
     description: 'Incluye operaciones, señas, importes financieros y todas las capacidades de Caja. Recomendado solo para personal de confianza.',
     profile: 'SECRETARY',
     permissions: permissions({
-      agendaScope: 'ALL', canCreateAppointments: true, canEditAppointments: true, canCancelAppointments: true,
+      agendaScope: 'ALL', canCreateAppointments: true, canEditAppointments: true, canCompleteAppointments: true, canCancelAppointments: true,
       canManageScheduleBlocks: true, canViewCustomers: true, canCreateCustomers: true, canEditCustomers: true,
       canManageCustomerNotes: true, canManageCustomerMarketing: true,
       canViewConversations: true, canReplyConversations: true, canManageDeposits: true,
@@ -102,6 +103,7 @@ function permissions(overrides: Partial<StaffPermissions>): StaffPermissions {
     agendaScope: 'OWN',
     canCreateAppointments: false,
     canEditAppointments: false,
+    canCompleteAppointments: false,
     canCancelAppointments: false,
     canManageScheduleBlocks: false,
     canForceAppointments: false,
@@ -151,7 +153,6 @@ export function resolveStaffPermissions(input: Partial<StaffPermissions> & {
   if (staffProfile === 'SECRETARY') merged.agendaScope = 'ALL'
   if (staffProfile === 'PROFESSIONAL') merged.agendaScope = 'OWN'
   if (!merged.canViewCustomers) {
-    merged.canCreateCustomers = false
     merged.canEditCustomers = false
     merged.canManageCustomerNotes = false
     merged.canManageCustomerMarketing = false
@@ -214,7 +215,7 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
     if (path === '/cash-register/payment-context') return verb === 'GET' && user.canRecordAppointmentPayments
     if (verb === 'GET') return user.canViewCashRegister
     if (/\/(?:open|new-session|close)$/.test(path)) return user.canManageCashSessions
-    if (/\/entries\/[^/]+\/reverse$/.test(path)) return user.canManageCashOperations || user.canAdjustCash || user.canRecordAppointmentPayments
+    if (/\/entries\/[^/]+\/reverse$/.test(path)) return user.staffProfile !== 'PROFESSIONAL' && ( user.canManageCashOperations || user.canAdjustCash || user.canRecordAppointmentPayments)
     if (path === '/cash-register/entries') return user.canManageCashOperations || user.canAdjustCash
     return false
   }
@@ -265,7 +266,7 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
     if (verb === 'GET') return true
     if (verb === 'POST') return user.canCreateAppointments
     if (verb === 'DELETE') return user.canCancelAppointments
-    if (path.endsWith('/status')) return user.canCancelAppointments || user.canEditAppointments
+    if (path.endsWith('/status')) return user.canCancelAppointments || user.canEditAppointments || user.canCompleteAppointments
     return user.canEditAppointments
   }
   return true

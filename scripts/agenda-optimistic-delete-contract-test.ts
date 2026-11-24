@@ -26,6 +26,7 @@ assert.ok(
 assert.match(deleteAppointmentSource, /Turno eliminado · sincronizando/, 'la eliminación optimista debe tener feedback inmediato')
 assert.match(deleteAppointmentSource, /agendaAppointments\.splice\(appointmentIndex, 0, appointment\)/, 'un error debe restaurar el turno en su posición')
 assert.match(deleteAppointmentSource, /No se pudo eliminar el turno\. Lo restauramos\./, 'el rollback debe explicarse claramente')
-assert.match(deleteAppointmentSource, /void Promise\.allSettled\(refreshes\)/, 'las recargas posteriores no deben bloquear la respuesta visual')
+assert.match(deleteAppointmentSource, /void refreshAgendaAppointment\(appointmentId\)/, 'la reconciliación puntual no debe bloquear la respuesta visual')
+assert.doesNotMatch(deleteAppointmentSource, /\bloadAgenda\(/, 'eliminar o completar un turno no debe recargar todo el rango')
 
 console.log('OK: eliminar un turno es inmediato, resiste recargas intermedias y revierte ante error.')

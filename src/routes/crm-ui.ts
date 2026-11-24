@@ -9228,6 +9228,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       font-size: 13px;
       line-height: 1.4;
     }
+    .workspace-details-loading { margin: 0; padding: 14px 18px; color: #31527e; background: #eef4ff; border-bottom: 1px solid #d8e3f3; font-weight: 600; }
+    .workspace-details-loading button { margin-left: 10px; padding: 6px 10px; border: 1px solid #b9cbe5; border-radius: 7px; color: #123d7a; background: #fff; font: inherit; cursor: pointer; }
+    .workspace-details-pending { visibility: hidden; }
 
     .settings-feedback.visible {
       display: block;
@@ -9328,47 +9331,292 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       grid-column: 1 / -1;
     }
 
-    .staff-permissions {
-      grid-column: 1 / -1;
-      padding: 12px;
-      border: 1px solid #e4e8f0;
-      border-radius: 8px;
-      display: grid;
-      gap: 10px;
-      background: #f8fafc;
+    #staff-user-form {
+      container-type: inline-size;
+      container-name: staff-access;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
     }
-
-    .staff-permissions > strong {
+    #staff-user-form .settings-field {
+      min-width: 0;
+    }
+    #staff-user-form .staff-account-grid {
+      gap: 16px;
+    }
+    .staff-template, .staff-permissions, .staff-access-summary, .staff-access-note {
+      min-width: 0;
+      padding: 16px;
+      border: 1px solid #dce5f3;
+      border-radius: 12px;
+      background: #fff;
+    }
+    .staff-template {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(220px, .7fr);
+      align-items: center;
+      gap: 16px;
+    }
+    .staff-template p, .staff-access-sidebar p {
+      margin: 6px 0 0;
+      color: #52627a;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .staff-template .settings-field {
+      margin: 0;
+    }
+    .staff-access-layout {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 260px;
+      gap: 16px;
+      align-items: start;
+    }
+    .staff-access-sidebar {
+      display: grid;
+      gap: 12px;
+    }
+    .staff-access-summary strong, .staff-access-note strong {
+      display: block;
+      color: #17213c;
+      font-size: 14px;
+    }
+    .staff-access-summary hr {
+      margin: 16px 0;
+      border: 0;
+      border-top: 1px solid #dce5f3;
+    }
+    .staff-access-note {
+      background: #fff;
+    }
+    .staff-permissions-heading {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .staff-permissions-heading > strong {
+      flex: 1;
+      color: #17213c;
+      font-size: 15px;
+    }
+    .staff-permissions-heading .field {
+      width: 100%;
+      min-width: 0;
+    }
+    .staff-permission-search-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .staff-permission-count, .staff-permission-badge {
+      padding: 4px 9px; border-radius: 20px; color: #1d4ed8; background: #e7efff; font-size: 11px; font-weight: 700; white-space: nowrap;
+    }
+    .staff-permission-group {
+      margin-top: 8px;
+      border: 1px solid #dce5f3;
+      border-radius: 9px;
+      background: #fff;
+    }
+    .staff-permission-group > summary {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      cursor: pointer;
+      list-style: none;
+    }
+    .staff-permission-group > summary::-webkit-details-marker {
+      display: none;
+    }
+    .staff-permission-group > summary::after {
+      content: '';
+      width: 7px;
+      height: 7px;
+      border-right: 1.5px solid #52627a;
+      border-bottom: 1.5px solid #52627a;
+      transform: rotate(45deg);
+      margin: 0 4px 4px 2px;
+      flex-shrink: 0;
+    }
+    .staff-permission-group[open] > summary::after {
+      transform: rotate(225deg);
+      margin-top: 6px;
+    }
+    .staff-permission-icon {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      border-radius: 8px;
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .staff-permission-icon svg {
+      width: 21px;
+      height: 21px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .staff-permission-group-title {
+      flex: 1;
+      min-width: 0;
+    }
+    .staff-permission-group-title strong {
+      display: block;
       color: #17213c;
       font-size: 13px;
     }
-
+    .staff-permission-group-title strong {
+      overflow-wrap: anywhere;
+    }
+    .staff-permission-group-title small {
+      display: block;
+      margin-top: 2px;
+      color: #66758b;
+      font-size: 11px;
+      line-height: 1.4;
+    }
     .staff-permission-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
+      padding: 0 10px 10px;
     }
-
     .staff-permission-grid label {
-      min-height: 36px;
-      padding: 7px 9px;
-      border: 1px solid #dbe3ef;
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
       display: flex;
-      align-items: center;
-      gap: 8px;
+      align-items: flex-start;
+      gap: 9px;
       color: #344054;
       background: #fff;
+      cursor: pointer;
+    }
+    .staff-permission-grid label:has(input:checked) {
+      border-color: #bfd2fa;
+      background: #f8faff;
+    }
+    #staff-user-form .staff-permission-grid input {
+      width: 16px;
+      height: 16px;
+      min-width: 16px;
+      padding: 0;
+      margin: 2px 0 0;
+      flex: 0 0 16px;
+      accent-color: var(--accent);
+    }
+    .staff-permission-grid label > span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .staff-permission-grid label strong {
+      display: block;
       font-size: 12px;
-      font-weight: 700;
+      line-height: 1.4;
+      color: #17213c;
     }
-
-    .staff-permission-grid label[hidden] {
-      display: none;
+    .staff-permission-grid label small {
+      display: block;
+      margin-top: 3px;
+      color: #66758b;
+      font-size: 11px;
+      font-weight: 400;
+      line-height: 1.45;
     }
-
-    .staff-permission-grid input {
-      width: auto;
+    .staff-permission-badge {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 10px;
+    }
+    #staff-user-form :is(input, select, button, summary):focus-visible {
+      outline: 3px solid #93b8fb;
+      outline-offset: 3px;
+    }
+    #staff-permission-results, #staff-permission-empty {
+      margin: 8px 0 0;
+      color: #66758b;
+      font-size: 12px;
+    }
+    #staff-user-form > .settings-actions {
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
+      margin-top: 18px;
+      padding: 14px 0 0;
+      border-top: 1px solid var(--line);
+      background: #fff;
+    }
+    @container staff-access (max-width: 850px) {
+      .staff-access-layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .staff-access-sidebar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 1100px) {
+      .staff-access-layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .staff-access-sidebar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 640px) {
+      #staff-accounts-panel {
+        padding: 14px;
+      }
+      #staff-accounts-panel .landing-settings-collapsible-content {
+        padding: 12px;
+      }
+      #staff-user-form {
+        padding: 12px;
+      }
+      #staff-user-form .staff-account-grid, .staff-template, .staff-permission-grid, .staff-access-sidebar {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .staff-template, .staff-permissions, .staff-access-summary, .staff-access-note {
+        padding: 12px;
+      }
+      .staff-permission-group-title small {
+        display: none;
+      }
+      .staff-permission-group > summary {
+        gap: 6px;
+      }
+      .staff-permission-group-title strong {
+        font-size: 12px;
+      }
+      .staff-permission-icon {
+        width: 28px;
+        height: 28px;
+      }
+      #staff-user-form > .settings-actions {
+        padding-bottom: 8px;
+      }
+      #staff-user-form > .settings-actions {
+        flex-wrap: wrap;
+      }
+      #staff-user-form > .settings-actions button {
+        min-width: 0;
+        flex: 1 1 100%;
+      }
     }
 
     .staff-account-list {
@@ -14755,22 +15003,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         transform: rotate(180deg);
       }
 
-      .agenda-gcal-filter {
-        min-height: 38px;
-        border: 1px solid #dbe4f0;
-        border-radius: 999px;
-        color: #1d4ed8;
-        background: #eff6ff;
-        font-size: 12px;
-        font-weight: 800;
-      }
-
-      .agenda-gcal-filter.active {
-        color: #ffffff;
-        border-color: #2563eb;
-        background: #2563eb;
-      }
-
       .agenda-gcal-today {
         border: 2px solid #2563eb;
         border-radius: 8px;
@@ -14860,32 +15092,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       .agenda-gcal-month-strip button.active {
         color: #ffffff;
         background: #2563eb;
-      }
-
-      .agenda-gcal-filter-panel {
-        padding: 0 18px 12px;
-        display: grid;
-        gap: 10px;
-        background: #f8fafc;
-      }
-
-      .agenda-gcal-filter-panel label {
-        display: grid;
-        gap: 5px;
-        color: #475569;
-        font-size: 12px;
-        font-weight: 800;
-      }
-
-      .agenda-gcal-filter-panel select {
-        width: 100%;
-        min-height: 42px;
-        border: 1px solid #dbe4f0;
-        border-radius: 10px;
-        padding: 0 12px;
-        color: #0f172a;
-        background: #ffffff;
-        font-size: 15px;
       }
 
       .agenda-gcal-frame {
@@ -15336,7 +15542,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .agenda-gcal-icon,
     .agenda-gcal-control,
     .agenda-gcal-title,
-    .agenda-gcal-filter,
+    .agenda-gcal-staff,
     .agenda-gcal-view-select {
       min-height: 38px;
       border: 1px solid #dbe4f0;
@@ -15359,8 +15565,39 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     .agenda-gcal-control,
-    .agenda-gcal-filter {
+    .agenda-gcal-staff {
       padding: 0 12px;
+    }
+
+    .agenda-gcal-staff {
+      position: relative;
+      gap: 5px;
+    }
+
+    .agenda-gcal-staff::after {
+      content: '';
+      border: 4px solid transparent;
+      border-bottom: 0;
+      border-top-color: currentColor;
+    }
+
+    .agenda-gcal-staff select {
+      position: absolute;
+      z-index: 1;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .agenda-gcal-staff:focus-within {
+      outline: 2px solid #2563eb;
+      outline-offset: -2px;
+    }
+
+    .agenda-gcal-staff:has(select:disabled) {
+      opacity: .55;
     }
 
     .agenda-gcal-title {
@@ -15395,15 +15632,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       padding: 0 10px;
     }
 
-    .agenda-gcal-filter.active,
+    .agenda-gcal-staff.active,
     .agenda-gcal-control.active {
       color: #1d4ed8;
       border-color: #93c5fd;
       background: #eff6ff;
     }
 
-    .agenda-gcal-month-panel,
-    .agenda-gcal-filter-panel {
+    .agenda-gcal-month-panel {
       z-index: 11;
       flex: 0 0 auto;
       border-bottom: 1px solid #dbe4f0;
@@ -15451,30 +15687,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     .agenda-gcal-month-strip button.active { color: #1d4ed8; background: #eff6ff; }
-
-    .agenda-gcal-filter-panel {
-      padding: 12px 14px;
-      display: flex;
-      gap: 12px;
-    }
-
-    .agenda-gcal-filter-panel label {
-      flex: 1 1 220px;
-      display: grid;
-      gap: 5px;
-      color: #475569;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .agenda-gcal-filter-panel select {
-      width: 100%;
-      min-height: 38px;
-      border: 1px solid #dbe4f0;
-      border-radius: 9px;
-      padding: 0 10px;
-      background: #fff;
-    }
 
     .agenda-gcal-frame {
       flex: 1 1 auto;
@@ -16316,7 +16528,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       .agenda-gcal-nav, .agenda-gcal-actions { order: 0; gap: 4px; }
       .agenda-gcal-nav [data-agenda-prev] { order: 0; }
       .agenda-gcal-actions { width: auto; margin-left: 0; flex-wrap: nowrap; }
-      .agenda-gcal-control, .agenda-gcal-filter { padding: 0 8px; }
+      .agenda-gcal-control, .agenda-gcal-staff { padding: 0 8px; }
+      .agenda-gcal-staff { min-height: 44px; }
       .agenda-gcal-toolbar .agenda-gcal-view-select {
         box-sizing: border-box;
         flex: 0 0 66px;
@@ -16329,8 +16542,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       .agenda-gcal-day-head strong { font-size: 11px; }
       .agenda-gcal-day-head span { width: 38px; height: 38px; font-size: 20px; }
       .agenda-gcal-fab { display: grid; width: 58px; height: 58px; right: 18px; bottom: calc(74px + env(safe-area-inset-bottom)); border-radius: 17px; place-items: center; color: #fff; background: #2563eb; font-size: 34px; box-shadow: 0 16px 34px rgba(37, 99, 235, .28); }
-      .agenda-gcal-filter-panel { flex-direction: column; }
-      .agenda-gcal-filter-panel label { flex-basis: auto; }
       .agenda-block-popover { place-items: end center; padding: 12px; }
       .agenda-block-popover .agenda-block-panel { width: 100%; max-height: min(82dvh, 720px); border-radius: 18px 18px 10px 10px; }
       .agenda-block-popover .agenda-block-panel .block-grid { grid-template-columns: 1fr; }
@@ -16915,12 +17126,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             <label for="agenda-professional">Profesional</label>
             <select id="agenda-professional">
               <option value="">Todos los profesionales</option>
-            </select>
-          </div>
-          <div class="agenda-filter">
-            <label for="agenda-service">Servicio</label>
-            <select id="agenda-service">
-              <option value="">Todos los servicios</option>
             </select>
           </div>
         </div>
@@ -19164,10 +19369,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <option value="SECRETARY">Secretaria</option>
                 </select>
               </div>
-              <div class="settings-field">
-                <label for="staff-user-preset">Preset de permisos</label>
-                <select class="field" id="staff-user-preset"></select>
-              </div>
               <div class="settings-field" id="staff-professional-field">
                 <label for="staff-user-professional">Profesional asignado</label>
                 <select class="field" id="staff-user-professional"></select>
@@ -19179,41 +19380,144 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <option value="inactive">Inactivo</option>
                 </select>
               </div>
-              <div class="staff-permissions full">
-                <strong id="staff-preset-title">Detalle del preset</strong>
-                <p id="staff-preset-description"></p>
-              </div>
-              <div class="staff-permissions full">
-                <strong id="staff-permissions-title">Permisos de agenda</strong>
-                <div class="staff-permission-grid">
-                  <label><input id="staff-can-create-appointments" type="checkbox" checked> Cargar turnos</label>
-                  <label><input id="staff-can-edit-appointments" type="checkbox" checked> Editar turnos</label>
-                  <label><input id="staff-can-cancel-appointments" type="checkbox" checked> Cancelar turnos</label>
-                  <label><input id="staff-can-manage-blocks" type="checkbox" checked> Bloquear agenda</label>
-                  <label><input id="staff-can-force-appointments" type="checkbox"> Forzar horarios, bloqueos o superposiciones</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-customers" type="checkbox"> Ver clientes</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-create-customers" type="checkbox"> Crear clientes</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-edit-customers" type="checkbox"> Editar clientes</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-notes" type="checkbox"> Gestionar notas de clientes</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-marketing" type="checkbox"> Preferencias de promociones</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-conversations" type="checkbox"> Ver conversaciones</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-reply-conversations" type="checkbox"> Responder conversaciones</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-deposits" type="checkbox"> Aprobar o rechazar se&ntilde;as</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-reports" type="checkbox"> Ver reportes operativos</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-financial" type="checkbox"> Ver importes financieros</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-cash-register" type="checkbox"> Ver Caja</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-record-appointment-payments" type="checkbox"> Registrar pagos de turnos</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-apply-discounts" type="checkbox"> Aplicar descuentos</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-operations" type="checkbox"> Registrar ingresos y egresos de Caja</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-adjust-cash" type="checkbox"> Ajustar diferencias de Caja</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-sessions" type="checkbox"> Abrir, cerrar y cambiar responsable de Caja</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-today-professional-production" type="checkbox"> Ver trabajo y facturaci&oacute;n de profesionales de hoy (sin saldos ni pagos)</label>
-                  <label><input id="staff-can-view-professional-settlements" type="checkbox"> <span id="staff-settlements-permission-label">Ver liquidaciones propias (solo consulta)</span></label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-products" type="checkbox"> Ver productos</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-sell-products" type="checkbox"> Vender productos</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-products" type="checkbox"> Administrar cat&aacute;logo</label>
+              <div class="staff-template">
+                <div>
+                  <strong id="staff-preset-title">Plantilla de permisos</strong>
+                  <p id="staff-preset-description"></p>
                 </div>
-                <small id="staff-permissions-help">El profesional solo accede a su propia agenda.</small>
+                <div class="settings-field">
+                  <label for="staff-user-preset">Plantilla de permisos</label>
+                  <select class="field" id="staff-user-preset"></select>
+                </div>
+              </div>
+              <div class="staff-access-layout">
+                <div class="staff-permissions">
+                  <div class="staff-permissions-heading">
+                    <strong id="staff-permissions-title">Permisos por &aacute;rea</strong>
+                    <span class="staff-permission-count" id="staff-permission-count" role="status" aria-live="polite"></span>
+                    <label class="staff-permission-search-label" for="staff-permission-search">Buscar permiso</label>
+                    <input class="field" id="staff-permission-search" type="search" placeholder="Buscar permiso..." autocomplete="off" aria-controls="staff-permission-groups">
+                  </div>
+                  <div id="staff-permission-groups">
+                    <details class="staff-permission-group" data-staff-permission-group="agenda" open>
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Agenda</strong><small>Turnos y disponibilidad.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label><input id="staff-can-create-appointments" type="checkbox" checked><span><strong>Cargar turnos</strong><small>Crear turnos nuevos.</small></span></label>
+                        <label><input id="staff-can-edit-appointments" type="checkbox" checked><span><strong>Editar turnos</strong><small>Modificar y reprogramar.</small></span></label>
+                        <label><input id="staff-can-complete-appointments" type="checkbox"><span><strong>Marcar como completado</strong><small>Registrar el servicio realizado.</small></span></label>
+                        <label><input id="staff-can-cancel-appointments" type="checkbox" checked><span><strong>Cancelar turnos</strong><small>Cancelar un turno de la agenda.</small></span></label>
+                        <label><input id="staff-can-manage-blocks" type="checkbox" checked><span><strong>Bloquear agenda</strong><small>Crear y quitar bloqueos.</small></span></label>
+                        <label><input id="staff-can-force-appointments" type="checkbox"><span><strong>Forzar horarios, bloqueos o superposiciones</strong><small>Permitir excepciones al agendar.</small><span class="staff-permission-badge">Avanzado</span></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="customers">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 4v3"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Clientes</strong><small>Datos, notas y preferencias.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-customers" type="checkbox"><span><strong>Ver clientes</strong><small>Consultar la cartera y buscar fichas.</small></span></label>
+                        <label><input id="staff-can-create-customers" type="checkbox"><span><strong>Crear clientes</strong><small>Dar de alta desde Agenda con nombre y tel&eacute;fono, sin habilitar la cartera.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-edit-customers" type="checkbox"><span><strong>Editar clientes</strong><small>Modificar datos de fichas visibles.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-notes" type="checkbox"><span><strong>Gestionar notas de clientes</strong><small>Actualizar notas y ficha t&eacute;cnica.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-marketing" type="checkbox"><span><strong>Preferencias de promociones</strong><small>Gestionar el consentimiento de contacto.</small></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="conversations">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 11a9 9 0 0 1-9 9H4l-3 2 2-6a9 9 0 1 1 18-5Z"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Conversaciones y se&ntilde;as</strong><small>Mensajes y comprobantes.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-conversations" type="checkbox"><span><strong>Ver conversaciones</strong><small>Consultar los mensajes del negocio.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-reply-conversations" type="checkbox"><span><strong>Responder conversaciones</strong><small>Enviar respuestas a los clientes.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-deposits" type="checkbox"><span><strong>Aprobar o rechazar se&ntilde;as</strong><small>Revisar los comprobantes recibidos.</small></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="payments">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 9h20M6 15h4"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Cobros de turnos</strong><small>Pagos y descuentos.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label><input id="staff-can-record-appointment-payments" type="checkbox"><span><strong id="staff-payments-permission-label">Registrar pagos de sus turnos</strong><small>Cobrar sin habilitar la administraci&oacute;n de Caja.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-apply-discounts" type="checkbox"><span><strong>Aplicar descuentos</strong><small>Descontar importes en los turnos.</small></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="cash">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 7V3h14v4M3 9h18v12H3zM7 13h2m3 0h2m3 0h1M7 17h2m3 0h2m3 0h1"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Caja</strong><small>Consulta, movimientos y sesiones.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-cash-register" type="checkbox"><span><strong>Ver Caja</strong><small>Consultar movimientos y saldos.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-operations" type="checkbox"><span><strong>Registrar ingresos y egresos de Caja</strong><small>Registrar movimientos manuales.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-adjust-cash" type="checkbox"><span><strong>Ajustar diferencias de Caja</strong><small>Corregir diferencias de saldo.</small><span class="staff-permission-badge">Avanzado</span></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-sessions" type="checkbox"><span><strong>Abrir, cerrar y cambiar responsable de Caja</strong><small>Administrar las sesiones de trabajo.</small><span class="staff-permission-badge">Avanzado</span></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="professionals">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Profesionales</strong><small>Actividad de hoy y liquidaciones.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-today-professional-production" type="checkbox"><span><strong>Ver trabajo y facturaci&oacute;n de profesionales de hoy</strong><small>Solo el d&iacute;a actual, sin saldos ni pagos.</small></span></label>
+                        <label><input id="staff-can-view-professional-settlements" type="checkbox"><span><strong id="staff-settlements-permission-label">Ver liquidaciones propias (solo consulta)</strong><small>Consultar trabajos, comisiones y pagos, sin administrarlos.</small></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="products">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7Zm0 10 9-5M12 12 3 7m9 5v10M7 4.7l10 5.6"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Productos</strong><small>Consulta, ventas y cat&aacute;logo.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-products" type="checkbox"><span><strong>Ver productos</strong><small>Consultar el cat&aacute;logo disponible.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-sell-products" type="checkbox"><span><strong>Vender productos</strong><small>Registrar ventas del cat&aacute;logo.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-products" type="checkbox"><span><strong>Administrar cat&aacute;logo</strong><small>Crear y actualizar productos.</small></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="reports">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 3v18h17M8 16v-4m5 4V7m5 9V4"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Reportes</strong><small>Actividad e importes financieros.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-reports" type="checkbox"><span><strong>Ver reportes operativos</strong><small>Consultar indicadores del negocio.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-financial" type="checkbox"><span><strong>Ver importes financieros</strong><small>Mostrar montos en los reportes.</small></span></label>
+                      </div>
+                    </details>
+                  </div>
+                  <p id="staff-permission-results" role="status" aria-live="polite" hidden></p>
+                  <p id="staff-permission-empty" hidden>No hay permisos que coincidan con la b&uacute;squeda.</p>
+                </div>
+                <aside class="staff-access-sidebar" aria-label="Resumen del acceso">
+                  <div class="staff-access-summary">
+                    <strong>Resumen del acceso</strong>
+                    <p id="staff-access-profile"></p>
+                    <p id="staff-access-scope"></p>
+                    <hr>
+                    <strong id="staff-access-template"></strong>
+                    <p id="staff-access-counts"></p>
+                    <p id="staff-permissions-help">El profesional solo accede a su propia agenda.</p>
+                  </div>
+                  <div class="staff-access-note">
+                    <strong>Cobrar no es administrar Caja</strong>
+                    <p>Registrar pagos no habilita abrir, cerrar ni ajustar la caja.</p>
+                    <p>Para responder conversaciones o editar clientes, primero debe poder verlos. Crear clientes es independiente de ver la cartera.</p>
+                  </div>
+                </aside>
               </div>
             </div>
             <div class="settings-actions">
@@ -20399,7 +20703,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaNowLineTimer: null,
       agendaBlockOpen: false,
       agendaMobileMonthOpen: false,
-      agendaMobileFiltersOpen: false,
       agendaMobileTouchStartX: null,
       agendaMobileTouchStartY: null,
       agendaMobileTouchStartScrollLeft: 0,
@@ -20426,7 +20729,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaPointerDrag: null,
       agendaRangePointer: null,
       agendaRangeSelection: null,
-      agendaPendingAppointmentIds: new Set(),
+      agendaPendingMoves: new Map(),
       agendaDeletingAppointmentIds: new Set(),
       agendaDidDrag: false,
       editingAppointmentId: null,
@@ -20752,6 +21055,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       staffUserStatus: document.getElementById('staff-user-status'),
       staffCanCreateAppointments: document.getElementById('staff-can-create-appointments'),
       staffCanEditAppointments: document.getElementById('staff-can-edit-appointments'),
+      staffCanCompleteAppointments: document.getElementById('staff-can-complete-appointments'),
+      staffPaymentsPermissionLabel: document.getElementById('staff-payments-permission-label'),
       staffCanCancelAppointments: document.getElementById('staff-can-cancel-appointments'),
       staffCanManageBlocks: document.getElementById('staff-can-manage-blocks'),
       staffCanForceAppointments: document.getElementById('staff-can-force-appointments'),
@@ -20781,6 +21086,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       staffPresetDescription: document.getElementById('staff-preset-description'),
       staffPermissionsTitle: document.getElementById('staff-permissions-title'),
       staffPermissionsHelp: document.getElementById('staff-permissions-help'),
+      staffPermissionSearch: document.getElementById('staff-permission-search'),
+      staffPermissionCount: document.getElementById('staff-permission-count'),
+      staffPermissionResults: document.getElementById('staff-permission-results'),
+      staffPermissionEmpty: document.getElementById('staff-permission-empty'),
+      staffAccessProfile: document.getElementById('staff-access-profile'),
+      staffAccessScope: document.getElementById('staff-access-scope'),
+      staffAccessTemplate: document.getElementById('staff-access-template'),
+      staffAccessCounts: document.getElementById('staff-access-counts'),
       staffUserCancel: document.getElementById('staff-user-cancel'),
       staffUserSubmit: document.getElementById('staff-user-submit'),
       staffUserFeedback: document.getElementById('staff-user-feedback'),
@@ -21272,7 +21585,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       mobileBack: document.getElementById('mobile-back'),
       appShell: document.getElementById('app-shell'),
       agendaProfessional: document.getElementById('agenda-professional'),
-      agendaService: document.getElementById('agenda-service'),
       agendaMonthPrev: document.getElementById('agenda-month-prev'),
       agendaMonthNext: document.getElementById('agenda-month-next'),
       agendaMonthTitle: document.getElementById('agenda-month-title'),
@@ -21758,8 +22070,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       bindLogoutButton()
       nav.querySelectorAll('button[data-nav-section]').forEach((button) => {
         button.addEventListener('click', () => {
-          if (button.dataset.marketingNav) setMarketingView(button.dataset.marketingNav)
-          setSection(button.dataset.navSection)
+          setSection(button.dataset.navSection, { marketingView: button.dataset.marketingNav })
         })
       })
     }
@@ -23130,6 +23441,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return hasAgendaPermission('canCreateAppointments')
     }
 
+    function canCompleteAppointments() {
+      return state.currentUser?.role !== 'STAFF' || state.currentUser?.canCompleteAppointments === true
+    }
+
     function canEditAppointments() {
       return hasAgendaPermission('canEditAppointments')
     }
@@ -23176,7 +23491,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (completedReadOnly) els.appointmentDelete.hidden = true
       if (els.appointmentAddServiceOpen) els.appointmentAddServiceOpen.disabled = !canCreateAppointments() || !canEditAppointments()
       if (els.appointmentDelete) els.appointmentDelete.disabled = !canCancelAppointments()
-      if (els.appointmentComplete) els.appointmentComplete.disabled = !canEditAppointments()
+      if (els.appointmentComplete) els.appointmentComplete.disabled = !canCompleteAppointments()
       if (els.appointmentNoShow) els.appointmentNoShow.disabled = !canCancelAppointments()
       if (els.blockForm) {
         for (const control of els.blockForm.querySelectorAll('input, select, button')) {
@@ -23840,6 +24155,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function resetStaffUserForm() {
+      els.staffPermissionSearch.value = ''
       els.staffUserId.value = ''
       els.staffUserName.value = ''
       els.staffUserEmail.value = ''
@@ -23860,6 +24176,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return {
         canCreateAppointments: els.staffCanCreateAppointments,
         canEditAppointments: els.staffCanEditAppointments,
+        canCompleteAppointments: els.staffCanCompleteAppointments,
         canCancelAppointments: els.staffCanCancelAppointments,
         canManageScheduleBlocks: els.staffCanManageBlocks,
         canForceAppointments: els.staffCanForceAppointments,
@@ -23909,6 +24226,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         for (const [key, field] of Object.entries(staffPermissionFields())) field.checked = preset.permissions[key] === true
       }
       renderStaffPresetDescription()
+      syncStaffPermissionOverview()
     }
 
     function syncStaffProfileFields() {
@@ -23918,6 +24236,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       for (const field of els.staffUserForm.querySelectorAll('[data-staff-permission-scope="SECRETARY"]')) {
         field.hidden = !isSecretary
       }
+      els.staffPaymentsPermissionLabel.textContent = isSecretary ? 'Registrar pagos de turnos' : 'Registrar pagos de sus turnos'
       els.staffPermissionsTitle.textContent = isSecretary ? 'Permisos de secretaría' : 'Permisos del profesional'
       els.staffSettlementsPermissionLabel.textContent = isSecretary
         ? 'Ver liquidaciones de profesionales (solo consulta)'
@@ -23925,11 +24244,55 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.staffPermissionsHelp.textContent = isSecretary
         ? 'Secretaría siempre ve la agenda completa. Profesionales y servicios son de solo lectura; ajustes, marketing masivo y cuentas quedan reservados al administrador.'
         : 'El profesional accede a su propia agenda. Si habilitás liquidaciones, puede consultar sus trabajos, comisiones, pagos recibidos y saldo. No administra pagos ni porcentajes.'
+      syncStaffPermissionOverview()
+    }
+
+    function normalizeStaffPermissionSearch(value) {
+      return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    }
+
+    function syncStaffPermissionOverview() {
+      if (!els.staffPermissionSearch) return
+      const isSecretary = els.staffUserProfile.value === 'SECRETARY'
+      const query = normalizeStaffPermissionSearch(els.staffPermissionSearch.value.trim())
+      let total = 0
+      let enabled = 0
+      let matches = 0
+      for (const group of els.staffUserForm.querySelectorAll('[data-staff-permission-group]')) {
+        const groupMatches = normalizeStaffPermissionSearch(group.querySelector('.staff-permission-group-title').textContent).includes(query)
+        let visible = 0
+        let active = 0
+        for (const label of group.querySelectorAll('label')) {
+          const available = isSecretary || label.dataset.staffPermissionScope !== 'SECRETARY'
+          const checked = label.querySelector('input').checked
+          if (available) { total += 1; if (checked) enabled += 1 }
+          label.hidden = !available || Boolean(query && !groupMatches && !normalizeStaffPermissionSearch(label.textContent).includes(query))
+          if (!label.hidden) { visible += 1; if (checked) active += 1 }
+        }
+        group.hidden = visible === 0
+        group.querySelector('[data-staff-group-count]').textContent = active + ' de ' + visible
+        if (query && visible) group.open = true
+        matches += visible
+      }
+      els.staffPermissionCount.textContent = enabled + ' de ' + total + ' activos'
+      els.staffPermissionResults.hidden = !query
+      els.staffPermissionResults.textContent = matches + ' permisos encontrados'
+      els.staffPermissionEmpty.hidden = !query || matches > 0
+      els.staffAccessProfile.textContent = isSecretary ? 'Secretaría' : 'Profesional'
+      els.staffAccessScope.textContent = isSecretary ? 'Puede ver la agenda completa.' : 'Puede acceder solo a su propia agenda.'
+      els.staffAccessTemplate.textContent = els.staffUserPreset.value === 'CUSTOM' ? 'Permisos personalizados' : els.staffPresetTitle.textContent
+      els.staffAccessCounts.textContent = enabled + ' habilitados · ' + (total - enabled) + ' deshabilitados'
+      els.staffPermissionsHelp.textContent = isSecretary
+        ? 'Profesionales y servicios son de solo lectura. Los ajustes y las cuentas quedan reservados al administrador.'
+        : els.staffCanCreateCustomers.checked
+          ? 'Puede crear clientes con nombre y teléfono desde Agenda. No accede a la cartera ni a la búsqueda de clientes.'
+          : 'Para cargar turnos, usa el teléfono de un cliente registrado. Las liquidaciones habilitadas son de consulta y solo propias.'
     }
 
     function markStaffPermissionsCustom() {
       if (els.staffUserPreset.value !== 'CUSTOM') els.staffUserPreset.value = 'CUSTOM'
       renderStaffPresetDescription()
+      syncStaffPermissionOverview()
     }
 
     function renderStaffProfessionalOptions() {
@@ -23983,6 +24346,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const labels = []
       if (user.canCreateAppointments !== false) labels.push('Carga turnos')
       if (user.canEditAppointments !== false) labels.push('Edita turnos')
+      if (user.canCompleteAppointments === true) labels.push('Completa turnos')
       if (user.canCancelAppointments !== false) labels.push('Cancela turnos')
       if (user.canManageScheduleBlocks !== false) labels.push('Bloquea agenda')
       if (user.canViewCustomers) labels.push('Clientes')
@@ -24079,6 +24443,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const user = state.staffUsers.find((item) => item.id === id)
       if (!user) return
       clearStaffUserFeedback()
+      els.staffPermissionSearch.value = ''
       els.staffUserId.value = user.id
       els.staffUserName.value = user.name || ''
       els.staffUserEmail.value = user.email || ''
@@ -24094,6 +24459,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.staffCanCancelAppointments.checked = user.canCancelAppointments !== false
       els.staffCanManageBlocks.checked = user.canManageScheduleBlocks !== false
       for (const [key, field] of Object.entries(staffPermissionFields())) field.checked = user[key] === true
+      syncStaffPermissionOverview()
       els.staffUserSubmit.textContent = 'Guardar cambios'
       els.staffUserCancel.hidden = false
       if (els.staffCreateCollapsible) els.staffCreateCollapsible.open = true
@@ -24250,7 +24616,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           ])
         : [[], { morningCutTime: '12:30', eveningCutTime: '16:30' }, null]
       if (managementBusinessId !== state.businessId || professionalCatalogGeneration !== state.agendaProfessionalCatalogGeneration) return
-      state.businessHours = businessHours
+      if (!agendaReady) state.businessHours = businessHours
       state.availabilitySettings = availabilitySettings
       if (managementBusinessId === state.businessId) {
         state.bookingManagementSettings = bookingManagementSettings
@@ -24484,6 +24850,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     let agendaDataStale = true
     let agendaMutationVersion = 0
     const agendaRangeCache = new Map()
+    const agendaAppointmentRefreshes = new Map()
     const customerPageCache = new Map()
     const customerPageRequests = new Map()
     let customerPageRequest = 0
@@ -24501,6 +24868,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaDataScope = null
       agendaDataStale = true
       agendaRangeCache.clear()
+      agendaAppointmentRefreshes.clear()
+      state.agendaPendingMoves.clear()
       state.agendaAppointments = []
       state.agendaBlocks = []
       state.agendaLoadedRangeStart = null
@@ -25699,8 +26068,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         } catch {
           return
         }
-        if (payload.businessId !== state.businessId || !payload.appointmentId) return
-        queueAgendaRealtimeRefresh()
+        if (payload.businessId !== state.businessId) return
+        if (!payload.appointmentId) {
+          queueAgendaRealtimeRefresh()
+          return
+        }
+        refreshAgendaAppointment(payload.appointmentId).catch((error) => console.error(error))
       })
       source.addEventListener('instagram_publication_changed', (event) => {
         let payload
@@ -25763,6 +26136,114 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaMutationVersion += 1
       agendaDataStale = true
       agendaRangeCache.clear()
+    }
+
+    function appointmentFitsAgendaRange(appointment, from, to, professional) {
+      if (!appointment || !from || !to) return false
+      const start = new Date(appointment.startAt)
+      return start >= from && start < to && (!professional || appointment.professionalId === professional)
+    }
+
+    function mergeAgendaAppointmentInRange(appointments, appointmentId, appointment, from, to, professional) {
+      const previous = appointments.find((item) => item.id === appointmentId)
+      const hasFinanceSummary = appointment && Object.prototype.hasOwnProperty.call(appointment, 'financeSummary')
+      const next = appointmentFitsAgendaRange(appointment, from, to, professional)
+        ? { ...appointment, ...(!hasFinanceSummary && previous?.financeSummary ? { financeSummary: previous.financeSummary } : {}) }
+        : null
+      const currentIndex = appointments.findIndex((item) => item.id === appointmentId)
+      if (currentIndex < 0 && !next) return { appointments, changed: false, previous, next }
+      if (currentIndex >= 0 && next && JSON.stringify(appointments[currentIndex]) === JSON.stringify(next)) {
+        return { appointments, changed: false, previous, next }
+      }
+      const updated = appointments.filter((item) => item.id !== appointmentId)
+      if (next) updated.push(next)
+      updated.sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
+      return { appointments: updated, changed: true, previous, next }
+    }
+
+    function applyAgendaAppointmentResult(appointmentId, appointment, businessId = state.businessId, workspaceVersion = crmWorkspaceVersion, { render = true } = {}) {
+      if (!appointmentId || state.businessId !== businessId || crmWorkspaceVersion !== workspaceVersion) return false
+      const scope = agendaProfessionalPreferenceKey()
+      // A range requested before this write can still arrive with the old appointment.
+      if (agendaRequest?.scope === scope) agendaRequest.appointmentChanges.set(appointmentId, appointment)
+      let changed = false
+      let visibleChanged = false
+      const selectedStart = startOfDay(state.agendaSelectedDate)
+      const selectedEnd = addDays(selectedStart, Number(state.agendaViewDays) || 1)
+      const visibleProfessional = els.agendaProfessional.value || ''
+      const currentScopeMatches = agendaDataScope === scope
+      if (currentScopeMatches && state.agendaLoadedRangeStart && state.agendaLoadedRangeEnd) {
+        const merged = mergeAgendaAppointmentInRange(
+          state.agendaAppointments,
+          appointmentId,
+          appointment,
+          state.agendaLoadedRangeStart,
+          state.agendaLoadedRangeEnd,
+          agendaDataProfessional
+        )
+        if (merged.changed) {
+          state.agendaAppointments = merged.appointments.filter((item) => !state.agendaDeletingAppointmentIds.has(item.id))
+          changed = true
+          visibleChanged = appointmentFitsAgendaRange(merged.previous, selectedStart, selectedEnd, visibleProfessional) ||
+            appointmentFitsAgendaRange(merged.next, selectedStart, selectedEnd, visibleProfessional)
+        }
+      }
+
+      for (const range of agendaRangeCache.values()) {
+        if (range.scope !== scope) continue
+        const merged = mergeAgendaAppointmentInRange(range.appointments, appointmentId, appointment, range.from, range.to, range.professional)
+        if (merged.changed) {
+          range.appointments = merged.appointments
+          changed = true
+        }
+      }
+      if (!changed) return false
+
+      if (render && currentScopeMatches && visibleChanged && els.appShell.dataset.section === 'agenda' && !state.agendaPointerDrag && !state.agendaRangeSelection) {
+        const scrollTop = els.agendaGridWrap.scrollTop
+        renderAgenda()
+        els.agendaGridWrap.scrollTop = scrollTop
+      }
+      return true
+    }
+
+    function refreshAgendaAppointment(appointmentId) {
+      if (!appointmentId || !state.businessId) return Promise.resolve()
+      const existing = agendaAppointmentRefreshes.get(appointmentId)
+      if (existing) {
+        existing.queued = true
+        return existing.promise
+      }
+      invalidateCustomerOverview()
+      if (document.body.dataset.currentSection === 'customers') {
+        void loadCustomerOverview({ preferCached: true })
+      }
+      const refresh = { queued: false, promise: null }
+      refresh.promise = (async () => {
+        do {
+          refresh.queued = false
+          const businessId = state.businessId
+          const workspaceVersion = crmWorkspaceVersion
+          const pendingRange = agendaRequest
+          if (pendingRange) await pendingRange.promise.catch(() => {})
+          if (businessId !== state.businessId || workspaceVersion !== crmWorkspaceVersion) return
+          const params = new URLSearchParams({ businessId, appointmentId })
+          const appointments = await getJson('/appointments?' + params.toString())
+          if (businessId !== state.businessId || workspaceVersion !== crmWorkspaceVersion) return
+          if (!Array.isArray(appointments)) throw new Error('La respuesta de turnos no tiene el formato esperado.')
+          if (agendaRequest && agendaRequest !== pendingRange) {
+            await agendaRequest.promise.catch(() => {})
+            refresh.queued = true
+            continue
+          }
+          const appointment = appointments.find((item) => item.id === appointmentId) || null
+          applyAgendaAppointmentResult(appointmentId, appointment, businessId, workspaceVersion)
+        } while (refresh.queued)
+      })().finally(() => {
+        if (agendaAppointmentRefreshes.get(appointmentId) === refresh) agendaAppointmentRefreshes.delete(appointmentId)
+      })
+      agendaAppointmentRefreshes.set(appointmentId, refresh)
+      return refresh.promise
     }
 
     function queueAgendaRealtimeRefresh() {
@@ -29558,10 +30039,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.agendaProfessional.value = impactedAppointment.professionalId
         if (els.agendaProfessional.value !== impactedAppointment.professionalId) els.agendaProfessional.value = ''
       }
-      if (els.agendaService && impactedAppointment.serviceId) {
-        els.agendaService.value = impactedAppointment.serviceId
-        if (els.agendaService.value !== impactedAppointment.serviceId) els.agendaService.value = ''
-      }
       setSection('agenda')
       await loadAgenda()
       const appointment = state.agendaAppointments.find((item) => item.id === impactedAppointment.id) || impactedAppointment
@@ -31659,7 +32136,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function renderAgendaFilters() {
       const selectedProfessional = els.agendaProfessional.value || ''
-      const selectedService = els.agendaService.value || ''
       const professionals = agendaVisibleProfessionals()
       els.agendaProfessional.innerHTML = (isOwnAgendaScope() ? [] : ['<option value="">Todos los profesionales</option>'])
         .concat(professionals.map((professional) => {
@@ -31670,13 +32146,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       restoreAgendaProfessionalFilter()
       if (isOwnAgendaScope()) els.agendaProfessional.value = agendaOwnProfessionalId()
 
-      const services = bookableServices()
-      els.agendaService.innerHTML = ['<option value="">Todos los servicios</option>']
-        .concat(services.map((service) => {
-          return '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + '</option>'
-        }))
-        .join('')
-      els.agendaService.value = services.some((service) => service.id === selectedService) ? selectedService : ''
       renderAgendaProfessionalControls()
     }
 
@@ -31885,7 +32354,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
       const apply = ({ appointments, blocks, from, to, professional, mutationVersion }, background = false) => {
-        state.agendaAppointments = appointments.filter((appointment) => !state.agendaDeletingAppointmentIds.has(appointment.id))
+        const preserveExistingFinance = agendaDataScope === scope &&
+          (!agendaDataProfessional || !professional || agendaDataProfessional === professional)
+        const previousById = new Map((preserveExistingFinance ? state.agendaAppointments : []).map((appointment) => [appointment.id, appointment]))
+        state.agendaAppointments = appointments.map((appointment) => {
+          const previous = previousById.get(appointment.id)
+          return !Object.prototype.hasOwnProperty.call(appointment, 'financeSummary') && previous?.financeSummary
+            ? { ...appointment, financeSummary: previous.financeSummary }
+            : appointment
+        }).filter((appointment) => !state.agendaDeletingAppointmentIds.has(appointment.id))
         state.agendaBlocks = blocks
         state.agendaLoadedRangeStart = from
         state.agendaLoadedRangeEnd = to
@@ -31924,7 +32401,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.agendaLoadController?.abort()
       const controller = new AbortController()
       const requestId = ++state.agendaLoadRequest
-      const requestRange = { scope, from: rangeStart, to: rangeEnd, professional: professionalId, mutationVersion: agendaMutationVersion, foreground: !options.buffer }
+      const requestRange = {
+        scope, from: rangeStart, to: rangeEnd, professional: professionalId,
+        mutationVersion: agendaMutationVersion, foreground: !options.buffer, appointmentChanges: new Map()
+      }
       state.agendaLoadController = controller
       if (els.appShell.dataset.section === 'agenda' && !options.buffer && !agendaRangeContains(selected, addDays(selected, viewDays))) {
         els.agendaGridWrap.innerHTML = '<div class="agenda-empty" role="status">Cargando turnos y bloqueos...</div>'
@@ -31937,7 +32417,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             options.initial ? prepareAgendaWorkspace() : null
           ])
           if (version !== crmWorkspaceVersion || requestId !== state.agendaLoadRequest || state.businessId !== businessId) return
-          const result = { ...requestRange, appointments, blocks }
+          let currentAppointments = appointments
+          for (const [id, appointment] of requestRange.appointmentChanges) {
+            currentAppointments = mergeAgendaAppointmentInRange(currentAppointments, id, appointment, rangeStart, rangeEnd, professionalId).appointments
+          }
+          const result = { ...requestRange, appointments: currentAppointments, blocks }
+          requestRange.appointmentChanges.clear()
           if (requestRange.mutationVersion === agendaMutationVersion) {
             agendaRangeCache.delete(key)
             if (agendaRangeCache.size >= 12) agendaRangeCache.delete(agendaRangeCache.keys().next().value)
@@ -32288,9 +32773,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const columnProfessionals = professionalDayView ? agendaVisibleProfessionals() : []
       const startDate = startOfDay(state.agendaSelectedDate)
       const monthPanel = state.agendaMobileMonthOpen ? renderAgendaMobileMonthPanel() : ''
-      const filtersPanel = state.agendaMobileFiltersOpen ? renderAgendaMobileFilterPanel() : ''
       const monthTitle = formatAgendaMobileTitle(state.agendaMobileMonthOpen ? state.agendaMonthDate : state.agendaSelectedDate)
-      const filtersActive = state.agendaMobileFiltersOpen || Boolean(els.agendaProfessional.value || els.agendaService.value)
       const today = new Date()
       const currentDays = Array.from({ length: viewDays }, (_, index) => addDays(startDate, index))
       const displayRange = getAgendaDisplayRange(currentDays)
@@ -32329,7 +32812,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               '<select class="agenda-gcal-view-select" data-agenda-view-days aria-label="D&iacute;as visibles">' +
                 [1, 3, 7].map((count) => '<option value="' + count + '"' + (count === viewDays ? ' selected' : '') + '>' + count + (count === 1 ? ' d&iacute;a' : ' d&iacute;as') + '</option>').join('') +
               '</select>' +
-            '<button class="agenda-gcal-filter' + (filtersActive ? ' active' : '') + '" type="button" data-agenda-mobile-filters aria-expanded="' + String(state.agendaMobileFiltersOpen) + '">Filtros</button>' +
+            renderAgendaStaffSelect() +
             (canManageScheduleBlocks() ? '<button class="agenda-gcal-control' + (state.agendaBlockOpen ? ' active' : '') + '" type="button" data-agenda-block-toggle>Bloquear</button>' : '') +
             '</div>' +
             '<div class="agenda-gcal-nav">' +
@@ -32341,7 +32824,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             '<label class="agenda-gcal-drag-lock" title="Desmarc&aacute; para mover turnos arrastr&aacute;ndolos. Pod&eacute;s abrirlos y editarlos con el bloqueo activo."><input type="checkbox" data-agenda-drag-lock' + (!canDragAgendaAppointments() ? ' checked' : '') + (!canEditAppointments() || !state.agendaDragLockScope ? ' disabled' : '') + '>Bloquear arrastre de turnos</label>' +
           '</header>' +
           monthPanel +
-          filtersPanel +
           '<div class="agenda-gcal-frame' + (professionalDayView ? ' agenda-gcal-professional-frame' : '') + '" data-agenda-mobile-frame data-agenda-base-index="' + (professionalDayView ? 0 : bufferBefore) + '" data-agenda-day-count="' + (professionalDayView ? columnProfessionals.length : renderedDays.length) + '" data-agenda-view-days="' + viewDays + '"' + (professionalDayView ? ' data-agenda-professional-columns="true"' : '') + ' style="--agenda-hour-height:' + hourHeight + 'px;--agenda-slot-height:' + (hourHeight / 2) + 'px;--agenda-visible-hours:' + visibleHours + ';--agenda-grid-height:' + (visibleHours * hourHeight) + 'px;--agenda-professional-count:' + Math.max(1, columnProfessionals.length) + '">' +
             '<div class="agenda-gcal-days-head">' +
               (professionalDayView ? renderAgendaProfessionalDateCorner(startDate) : '<div></div>') +
@@ -32438,6 +32920,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         .map((appointment) => renderAgendaMobileEvent(appointment, hourHeight, displayRange, eventLayout.get(appointment.id)))
         .join('')
       const dayBlocks = filteredAgendaBlocksForRange(day, addDays(day, 1))
+        .filter((block) => ![3, 7].includes(Number(state.agendaViewDays)) || !block.professionalId)
         .map((block) => renderAgendaMobileBlock(block, day, hourHeight, displayRange))
         .join('')
       const actionRail = Number(state.agendaViewDays) > 1 && (canCreateAppointments() || canManageScheduleBlocks())
@@ -32459,7 +32942,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const color = agendaProfessionalColor(appointment.professionalId, professionalIndex)
       const noShow = appointment.status === 'NO_SHOW'
       const attention = noShow ? null : agendaAttentionMeta(appointment.attentionColor)
-      const pending = state.agendaPendingAppointmentIds.has(appointment.id)
+      const pending = state.agendaPendingMoves.has(appointment.id)
       const columns = Math.max(1, placement?.columns || 1)
       const column = Math.max(0, placement?.column || 0)
       const left = 'calc(' + ((column * 100) / columns) + '% + 4px)'
@@ -32475,7 +32958,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const statusSummary = ${cashRegisterEnabled ? 'agendaAppointmentStatusSummaryText(appointment)' : "''"}
       const statusDensityClass = ${cashRegisterEnabled ? "!['CANCELLED', 'NO_SHOW'].includes(appointment.status) ? agendaStatusDensityClass(duration) : ''" : "''"}
       const origin = appointmentOriginMeta(appointment.origin)
-      return '<article class="agenda-gcal-event' + statusDensityClass + depositClass + (attention ? ' has-attention' + attention.className : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + depositStyle + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + depositTitle + (statusSummary ? ' - ' + statusSummary : '') + (attention ? ' - ' + attention.label : '')) + '">' +
+      return '<article class="agenda-gcal-event' + statusDensityClass + depositClass + (attention ? ' has-attention' + attention.className : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + depositStyle + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + depositTitle + (statusSummary ? ' - ' + statusSummary : '') + (attention ? ' - ' + attention.label : '') + (pending ? ' - Guardando cambio' : '')) + '"' + (pending ? ' aria-busy="true"' : '') + '>' +
         '<button class="agenda-gcal-event-main" type="button" data-agenda-edit-appointment>' +
           '<strong>' + escapeHtml(service) + '</strong>' +
           '<span class="agenda-gcal-event-customer">' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>' +
@@ -32629,24 +33112,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       '</section>'
     }
 
-    function renderAgendaMobileFilterPanel() {
+    function renderAgendaStaffSelect() {
       const selectedProfessional = els.agendaProfessional.value || ''
-      const selectedService = els.agendaService.value || ''
       const professionalOptions = (isOwnAgendaScope() ? [] : ['<option value="">Todos los profesionales</option>'])
         .concat(agendaVisibleProfessionals().map((professional) => {
-          return '<option value="' + professional.id + '"' + (professional.id === selectedProfessional ? ' selected' : '') + '>' + escapeHtml(professional.name) + '</option>'
+          return '<option value="' + escapeHtml(professional.id) + '"' + (professional.id === selectedProfessional ? ' selected' : '') + '>' + escapeHtml(professional.name) + '</option>'
         }))
         .join('')
-      const serviceOptions = ['<option value="">Todos los servicios</option>']
-        .concat(bookableServices().map((service) => {
-          return '<option value="' + service.id + '"' + (service.id === selectedService ? ' selected' : '') + '>' + escapeHtml(serviceCatalogLabel(service)) + '</option>'
-        }))
-        .join('')
-
-      return '<section class="agenda-gcal-filter-panel">' +
-        '<label>Profesional<select data-agenda-mobile-professional>' + professionalOptions + '</select></label>' +
-        '<label>Servicio<select data-agenda-mobile-service>' + serviceOptions + '</select></label>' +
-      '</section>'
+      return '<label class="agenda-gcal-staff' + (selectedProfessional ? ' active' : '') + '">' +
+        '<span>Staff</span><select data-agenda-mobile-professional aria-label="Staff"' + (professionalOptions ? '' : ' disabled') + '>' +
+        professionalOptions + '</select></label>'
     }
 
     function agendaRangeCellContext(cell) {
@@ -33017,17 +33492,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.agendaGridWrap.querySelector('[data-agenda-block-toggle]')?.addEventListener('click', openAgendaBlockPopover)
       els.agendaGridWrap.querySelector('[data-agenda-mobile-month-toggle]')?.addEventListener('click', async () => {
         state.agendaMobileMonthOpen = !state.agendaMobileMonthOpen
-        if (state.agendaMobileMonthOpen) state.agendaMobileFiltersOpen = false
         if (state.agendaMobileMonthOpen) {
           await loadAgenda({ monthView: true })
         } else {
           renderAgenda()
         }
-      })
-      els.agendaGridWrap.querySelector('[data-agenda-mobile-filters]')?.addEventListener('click', () => {
-        state.agendaMobileFiltersOpen = !state.agendaMobileFiltersOpen
-        if (state.agendaMobileFiltersOpen) state.agendaMobileMonthOpen = false
-        renderAgenda()
       })
       els.agendaGridWrap.querySelector('[data-agenda-mobile-today]')?.addEventListener('click', async () => {
         state.agendaMobileMonthOpen = false
@@ -33056,11 +33525,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         rememberAgendaProfessionalFilter()
         renderAgendaProfessionalControls()
         await loadAgenda({ preferCached: true })
-      })
-
-      els.agendaGridWrap.querySelector('[data-agenda-mobile-service]')?.addEventListener('change', (event) => {
-        els.agendaService.value = event.target.value || ''
-        renderAgenda()
       })
 
       for (const cell of els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]')) {
@@ -33106,12 +33570,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         eventNode.addEventListener('click', (event) => {
           event.stopPropagation()
           if (event.target.closest('[data-agenda-new-at]')) return
-          if (state.agendaDidDrag) return
+          if (state.agendaDidDrag || state.agendaPendingMoves.has(eventNode.dataset.appointmentId)) return
           if (appointment) openAppointmentDialog({ appointment })
         })
         eventNode.querySelector('[data-agenda-new-at]')?.addEventListener('click', (event) => {
           event.stopPropagation()
-          if (!appointment || state.agendaDidDrag) return
+          if (!appointment || state.agendaDidDrag || state.agendaPendingMoves.has(appointment.id)) return
           if (!canCreateAppointments()) {
             showCrmToast('No tenes permiso para cargar turnos.', 'error')
             return
@@ -33385,7 +33849,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       for (const button of els.agendaGridWrap.querySelectorAll('[data-appointment-id]')) {
         button.addEventListener('click', () => {
           const appointment = state.agendaAppointments.find((item) => item.id === button.dataset.appointmentId)
-          if (appointment) openAppointmentDialog({ appointment })
+          if (appointment && !state.agendaPendingMoves.has(appointment.id)) openAppointmentDialog({ appointment })
         })
       }
     }
@@ -33529,7 +33993,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         const widthOffset = gap + (10 / placement.columns)
         const noShow = appointment.status === 'NO_SHOW'
         const attention = noShow ? null : agendaAttentionMeta(appointment.attentionColor)
-        const pending = state.agendaPendingAppointmentIds.has(appointment.id)
+        const pending = state.agendaPendingMoves.has(appointment.id)
         const depositIndicator = agendaDepositIndicator(appointment)
         const origin = appointmentOriginMeta(appointment.origin)
 
@@ -33550,9 +34014,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           '<span class="agenda-event-professional">' + escapeHtml(professional) + '</span>' +
           ${cashRegisterEnabled ? 'agendaAppointmentStatusBadgesHtml(appointment)' : "''"}
         event.dataset.appointmentId = appointment.id
+        if (pending) event.setAttribute('aria-busy', 'true')
         event.draggable = false
         event.addEventListener('click', (clickEvent) => {
           clickEvent.stopPropagation()
+          if (state.agendaPendingMoves.has(appointment.id)) return
           if (state.agendaDidDrag) {
             state.agendaDidDrag = false
             return
@@ -33577,7 +34043,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         showCrmToast('No tenes permiso para editar turnos.', 'error')
         return
       }
-      if (state.agendaPendingAppointmentIds.has(appointmentId)) return
+      if (state.agendaPendingMoves.has(appointmentId)) return
 
       clearAgendaPointerDrag()
 
@@ -33811,10 +34277,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!canDragAgendaAppointments()) return
       const moveScope = state.agendaDragLockScope
       const moveRevision = state.agendaDragLockRevision
-      const canContinue = () => canDragAgendaAppointments() && state.agendaDragLockScope === moveScope && state.agendaDragLockRevision === moveRevision
+      const moveBusinessId = state.businessId
+      const moveWorkspaceVersion = crmWorkspaceVersion
+      const isCurrentWorkspace = () => state.businessId === moveBusinessId &&
+        crmWorkspaceVersion === moveWorkspaceVersion && agendaDragLockPreferenceKey() === moveScope
+      const canContinue = () => isCurrentWorkspace() && canDragAgendaAppointments() && state.agendaDragLockRevision === moveRevision
       const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
       if (!appointment) return
-      if (state.agendaPendingAppointmentIds.has(appointmentId)) return
+      if (state.agendaPendingMoves.has(appointmentId)) return
 
       const target = parseDateKey(targetDateKey)
       target.setHours(Math.floor(targetMinute / 60), targetMinute % 60, 0, 0)
@@ -33833,10 +34303,17 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         serviceIds,
         startAt: target.toISOString()
       }
-      state.agendaPendingAppointmentIds.add(appointmentId)
-      renderAgenda()
+      const pendingMove = {
+        scope: moveScope,
+        workspaceVersion: moveWorkspaceVersion,
+        startAt: payload.startAt,
+        professionalId: targetProfessionalId,
+        professional: targetProfessional || (targetProfessionalId === appointment.professionalId ? appointment.professional : null)
+      }
+      state.agendaPendingMoves.set(appointmentId, pendingMove)
 
       try {
+        renderAgenda()
         if (!canContinue()) return
         let saved
         try {
@@ -33846,11 +34323,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             body: JSON.stringify(payload)
           })
         } catch (error) {
-          if (!canContinue()) return
           const conflicts = Array.isArray(error.body?.conflicts) ? error.body.conflicts : []
           if (error.body?.code !== 'APPOINTMENT_AVAILABILITY_CONFLICT' || error.body?.forceable !== true || !conflicts.length) {
             throw error
           }
+          if (!canContinue()) return
 
           const conflictList = conflicts.map((conflict) => '• ' + conflict.message).join('\\n')
           if (!canForceAppointmentOverrides()) {
@@ -33886,21 +34363,34 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           })
         }
 
-        if (agendaDragLockPreferenceKey() !== moveScope) return
-        invalidateAgendaRanges()
+        if (!isCurrentWorkspace()) return
         invalidateCustomerOverview()
-        state.agendaAppointments = state.agendaAppointments.map((item) => {
-          return item.id === appointmentId ? { ...item, ...saved } : item
-        })
-        state.agendaSelectedDate = target
-        state.agendaMonthDate = new Date(target)
+        const previousAppointment = state.agendaAppointments.find((item) => item.id === appointmentId) || appointment
+        applyAgendaAppointmentResult(
+          appointmentId,
+          { ...previousAppointment, ...saved, id: appointmentId },
+          moveBusinessId,
+          moveWorkspaceVersion,
+          { render: false }
+        )
         showCrmToast('Turno movido a ' + (targetProfessional?.name || 'la nueva agenda') + '.', 'success')
       } catch (error) {
-        showCrmToast(error.message, 'error')
+        if (!isCurrentWorkspace()) return
+        if (error.name === 'TypeError' || error.name === 'SyntaxError' || error.status >= 500) {
+          showCrmToast('No se pudo confirmar el cambio. Verificando el horario del turno.', 'error')
+          await refreshAgendaAppointment(appointmentId).catch((refreshError) => console.error(refreshError))
+        } else {
+          showCrmToast(error.message, 'error')
+        }
       } finally {
-        state.agendaPendingAppointmentIds.delete(appointmentId)
-        state.agendaDraggingAppointmentId = null
-        renderAgenda()
+        if (state.agendaPendingMoves.get(appointmentId) === pendingMove) {
+          state.agendaPendingMoves.delete(appointmentId)
+          if (isCurrentWorkspace() && !state.agendaPointerDrag && !state.agendaRangeSelection && els.appShell.dataset.section === 'agenda') {
+            const scrollTop = els.agendaGridWrap.scrollTop
+            renderAgenda()
+            els.agendaGridWrap.scrollTop = scrollTop
+          }
+        }
       }
     }
 
@@ -33976,20 +34466,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const ownProfessionalId = agendaOwnProfessionalId()
       if (ownProfessionalId === '') return []
       const professionalId = ownProfessionalId === null ? els.agendaProfessional?.value || '' : ownProfessionalId
-      const serviceId = els.agendaService?.value || ''
+      const moveScope = agendaDragLockPreferenceKey()
 
       return state.agendaAppointments
         .filter((appointment) => appointment.status !== 'CANCELLED')
+        .map((appointment) => {
+          const move = state.agendaPendingMoves.get(appointment.id)
+          if (!move || move.scope !== moveScope || move.workspaceVersion !== crmWorkspaceVersion) return appointment
+          return { ...appointment, startAt: move.startAt, professionalId: move.professionalId, professional: move.professional }
+        })
         .filter((appointment) => {
           const start = new Date(appointment.startAt)
           return start >= from && start < to
         })
         .filter((appointment) => !professionalId || appointment.professionalId === professionalId)
-        .filter((appointment) =>
-          !serviceId ||
-          appointment.serviceId === serviceId ||
-          (appointment.serviceItems || []).some((item) => item.serviceId === serviceId)
-        )
         .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
     }
 
@@ -34264,7 +34754,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentDelete.hidden = !appointment
       const canMarkCompleted = Boolean(
         appointment &&
-        canEditAppointments() &&
+        canCompleteAppointments() &&
         !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(appointment.status) &&
         new Date(appointment.startAt).getTime() <= Date.now()
       )
@@ -34306,9 +34796,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.appointmentStart.value = toDatetimeLocalValue(addMinutes(startOfDay(date), minute))
 
         const selectedProfessionalId = input.professionalId || els.agendaProfessional.value
-        const selectedServiceId = input.serviceId || els.agendaService.value
         els.appointmentProfessional.value = selectedProfessionalId || activeProfessionals()[0]?.id || ''
-        const compatibleServices = renderAppointmentServiceOptions(selectedServiceId)
+        const compatibleServices = renderAppointmentServiceOptions(input.serviceId)
         if (compatibleServices.length === 0) {
           els.appointmentFeedback.textContent = 'Este profesional no tiene servicios asignados.'
         } else if (input.additionalAtOccupiedTime) {
@@ -34335,7 +34824,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (customerSearchRow) customerSearchRow.hidden = protectsScheduledCustomer || !canViewAppointmentCustomerData()
       if (customerPhoneRow) customerPhoneRow.hidden = protectsScheduledCustomer
       const usesExistingCustomerPhone = !appointment && state.currentUser?.role === 'STAFF' &&
-        (state.currentUser?.canCreateCustomers !== true || state.currentUser?.canViewCustomers !== true)
+        state.currentUser?.canCreateCustomers !== true
       els.appointmentCustomerName.readOnly = protectsScheduledCustomer || usesExistingCustomerPhone
       if (usesExistingCustomerPhone && !els.appointmentFeedback.textContent) {
         els.appointmentFeedback.textContent = 'Ingresá el teléfono del cliente registrado. Usaremos su ficha existente, sin crear una nueva.'
@@ -34663,6 +35152,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function saveManualAppointment(event) {
       event.preventDefault()
+      const saveBusinessId = state.businessId
+      const saveWorkspaceVersion = crmWorkspaceVersion
+      const isSaveContextCurrent = () => state.businessId === saveBusinessId && crmWorkspaceVersion === saveWorkspaceVersion
       els.appointmentFeedback.textContent = ''
       if (editingAgendaAppointment()?.status === 'COMPLETED') {
         els.appointmentFeedback.textContent = 'El turno está realizado. El administrador del local puede usar Corregir servicio realizado.'
@@ -34689,10 +35181,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const appointment = editingAgendaAppointment()
       const resolveExistingCustomerByPhone = !appointment && !customerId &&
         state.currentUser?.role === 'STAFF' &&
-        (state.currentUser?.canCreateCustomers !== true || state.currentUser?.canViewCustomers !== true)
+        state.currentUser?.canCreateCustomers !== true
       const existingCustomerPhone = els.appointmentCustomerPhone.value.trim()
       if (resolveExistingCustomerByPhone && !existingCustomerPhone) {
         els.appointmentFeedback.textContent = 'Ingresá el número completo de un cliente registrado para cargarle el turno.'
+        els.appointmentCustomerPhone.focus()
+        return
+      }
+      if (!appointment && state.currentUser?.role === 'STAFF' && state.currentUser?.canCreateCustomers === true &&
+        state.currentUser?.canViewCustomers !== true && !existingCustomerPhone) {
+        els.appointmentFeedback.textContent = 'Ingresá nombre y teléfono completo para crear el cliente.'
         els.appointmentCustomerPhone.focus()
         return
       }
@@ -34824,7 +35322,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             showCrmToast('Turno presencial cargado sin teléfono. Podés completar el contacto más adelante.', 'success')
           }
           customerId = customer.id
-          state.customers = await getJson(businessScopedPath('/customers'))
+          if (state.currentUser?.role !== 'STAFF' || state.currentUser?.canViewCustomers === true) {
+            state.customers = await getJson(businessScopedPath('/customers'))
+          } else {
+            state.customers.push(customer)
+          }
           renderAppointmentFormOptions()
         } else if (customerId) {
           if (customerChanges.changed) {
@@ -34833,6 +35335,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           }
         }
 
+        if (!isSaveContextCurrent()) return
         const appointmentId = state.editingAppointmentId
         const appointmentPath = appointmentId ? '/appointments/' + appointmentId : '/appointments'
         const appointmentPayload = {
@@ -34852,8 +35355,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...appointmentPayload, force: forceOverride })
         })
+        let savedAppointment
         try {
-          await submitAppointment(force)
+          savedAppointment = await submitAppointment(force)
         } catch (error) {
           const writeConflicts = Array.isArray(error.body?.conflicts) ? error.body.conflicts : []
           const canRetryAsOverride = !force &&
@@ -34865,15 +35369,21 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             writeConflicts,
             { startAt, professionalId, serviceId }
           )
-          if (!confirmedOverride) return
-          await submitAppointment(true)
+          if (!confirmedOverride || !isSaveContextCurrent()) return
+          savedAppointment = await submitAppointment(true)
         }
 
+        if (!isSaveContextCurrent()) return
         closeAppointmentDialog()
-        await loadAgenda()
+        const savedAppointmentId = savedAppointment?.id || appointmentId
+        if (savedAppointmentId) {
+          void refreshAgendaAppointment(savedAppointmentId).catch((error) => {
+            console.error('No se pudo actualizar el turno guardado en la Agenda.', error)
+            if (isSaveContextCurrent()) showCrmToast('El turno se guardó, pero no se pudo actualizar su vista. Revisá la Agenda en unos instantes.', 'error')
+          })
+        }
         if (state.selected) {
-          await loadAppointments()
-          renderAppointments()
+          void loadAppointments().then(() => renderAppointments()).catch((error) => console.error(error))
         }
       } catch (error) {
         const suggestion = error.message.includes('horario') || error.message.includes('disponible') || error.message.includes('bloqueado')
@@ -34919,9 +35429,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         })
         state.agendaDeletingAppointmentIds.delete(appointmentId)
         showCrmToast('Turno eliminado.', 'success')
-        const refreshes = [loadAgenda()]
-        if (state.selected) refreshes.push(loadAppointments().then(() => renderAppointments()))
-        void Promise.allSettled(refreshes)
+        void refreshAgendaAppointment(appointmentId).catch((refreshError) => console.error(refreshError))
+        if (state.selected) void loadAppointments().then(() => renderAppointments()).catch(console.error)
       } catch (error) {
         state.agendaDeletingAppointmentIds.delete(appointmentId)
         if (state.businessId === businessId && appointmentIndex >= 0 && !state.agendaAppointments.some((item) => item.id === appointmentId)) {
@@ -34945,7 +35454,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     async function completeManualAppointment() {
       const appointmentId = state.editingAppointmentId
       if (!appointmentId) return
-      if (!canEditAppointments()) {
+      if (!canCompleteAppointments()) {
         els.appointmentFeedback.textContent = 'No tenés permiso para marcar turnos como realizados.'
         return
       }
@@ -34968,7 +35477,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           body: JSON.stringify({ status: 'COMPLETED' })
         })
         closeAppointmentDialog()
-        await loadAgenda()
+        void refreshAgendaAppointment(appointmentId).catch((error) => console.error(error))
         if (state.selected) {
           await loadAppointments()
           renderAppointments()
@@ -35007,7 +35516,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           })
         })
         closeAppointmentDialog()
-        await loadAgenda()
+        void refreshAgendaAppointment(appointmentId).catch((error) => console.error(error))
         if (state.selected) {
           await loadAppointments()
           renderAppointments()
@@ -37490,25 +37999,89 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
-    function setSection(section, { deferAgenda = false } = {}) {
+    function setWorkspaceDetailsLoading(section, loading, message = '', marketingView) {
+      const targetId = { settings: 'settings-view', campaigns: 'campaigns-view', accounts: 'accounts-view' }[section]
+      const target = targetId ? document.getElementById(targetId) : null
+      if (!target) return
+      const content = target.querySelector('.' + section + '-shell')
+      if (content) {
+        content.setAttribute('aria-busy', loading ? 'true' : 'false')
+        content.inert = loading || Boolean(message)
+        content.classList.toggle('workspace-details-pending', loading || Boolean(message))
+      }
+      let status = target.querySelector('[data-workspace-details-status]')
+      if (!loading && !message) {
+        status?.remove()
+        return
+      }
+      if (!status) {
+        status = document.createElement('p')
+        status.dataset.workspaceDetailsStatus = 'true'
+        status.setAttribute('role', 'status')
+        status.setAttribute('aria-live', 'polite')
+        status.className = 'workspace-details-loading'
+        target.prepend(status)
+      }
+      const label = section === 'settings' ? 'Ajustes' : section === 'accounts' ? 'Cuentas' : (marketingView || state.marketingView) === 'instagram-reels' ? 'Instagram' : 'Marketing'
+      status.textContent = message || 'Cargando ' + label + '…'
+    }
+
+    function activateDeferredWorkspaceSection(section, marketingView) {
+      if (section === 'accounts') loadManagedAccounts().catch(renderManagedAccountsLoadError)
+      if (section === 'campaigns') {
+        setMarketingView(marketingView || state.marketingView)
+        if (!state.campaignsLoaded) loadCampaigns()
+        if (state.marketingView !== 'templates' && !state.templatesLoaded) loadWhatsappTemplates()
+      }
+      if (section === 'settings') {
+        setSettingsView(state.settingsView)
+        ensureBusinessMedia().catch((error) => showCrmToast(error.message, 'error'))
+      }
+    }
+
+    function loadDeferredWorkspaceSection(section, workspace, navigation, marketingView) {
+      const isCurrent = () => deferredWorkspace === workspace && workspaceNavigation === navigation && els.appShell.dataset.section === section
+      const run = () => {
+        setWorkspaceDetailsLoading(section, true, '', marketingView)
+        ensureWorkspaceDetails().then(() => {
+          if (!isCurrent()) return
+          setWorkspaceDetailsLoading(section, false)
+          activateDeferredWorkspaceSection(section, marketingView)
+        }).catch((error) => {
+          if (!isCurrent()) return
+          setWorkspaceDetailsLoading(section, false, error.message, marketingView)
+          const target = document.getElementById(({ settings: 'settings-view', campaigns: 'campaigns-view', accounts: 'accounts-view' })[section])
+          const status = target?.querySelector('[data-workspace-details-status]')
+          if (status) {
+            const retry = document.createElement('button')
+            retry.type = 'button'
+            retry.textContent = 'Reintentar'
+            retry.addEventListener('click', run)
+            status.appendChild(retry)
+          }
+          showCrmToast(error.message, 'error')
+        })
+      }
+      run()
+    }
+
+    function setSection(section, { deferAgenda = false, marketingView } = {}) {
       if (!staffVisibleSections().includes(section)) section = staffVisibleSections()[0] || 'accounts'
       if (!isWorkshopBusiness() && ['autos', 'workshop-jobs', 'workshop-services', 'workshop-personnel'].includes(section)) section = staffVisibleSections()[0] || 'accounts'
       const navigation = ++workspaceNavigation
       const workspace = deferredWorkspace
-      if (workspace && !workspace.detailsReady && ['settings', 'campaigns', 'accounts'].includes(section)) {
-        showCrmToast('Cargando ' + ({ settings: 'ajustes', campaigns: 'marketing', accounts: 'cuentas' }[section]) + '...', 'info')
-        ensureWorkspaceDetails().then(() => {
-          if (deferredWorkspace === workspace && workspaceNavigation === navigation) setSection(section)
-        }).catch((error) => {
-          if (deferredWorkspace === workspace && workspaceNavigation === navigation) showCrmToast(error.message, 'error')
-        })
-        return
+      const waitForWorkspaceDetails = Boolean(workspace && !workspace.detailsReady && ['settings', 'campaigns', 'accounts'].includes(section))
+      const previousSection = els.appShell.dataset.section
+      if (previousSection && previousSection !== section && ['settings', 'campaigns', 'accounts'].includes(previousSection)) {
+        setWorkspaceDetailsLoading(previousSection, false)
       }
+      if (!waitForWorkspaceDetails && ['settings', 'campaigns', 'accounts'].includes(section)) setWorkspaceDetailsLoading(section, false)
       if (section === 'agenda' && !state.businessId) {
         showCrmToast('Esperá a que termine de cargar el negocio antes de abrir la agenda.', 'error')
         return
       }
       els.appShell.dataset.section = section
+      if (section === 'campaigns' && marketingView) state.marketingView = marketingView
       if (section !== 'campaigns') { instagramMediaPlanLeave(); if(typeof instagramStoriesReset==='function')instagramStoriesReset() }
       if (section !== 'campaigns') instagramMediaAutomationClose(false)
       document.body.dataset.currentSection = section
@@ -37582,9 +38155,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (section === 'workshop-services') wsLoad().catch((error)=>showCrmToast(error.message,'error'))
       if (section === 'workshop-personnel') wpLoad().catch((error)=>showCrmToast(error.message,'error'))
 
-      if (section === 'accounts') {
-        loadManagedAccounts().catch(renderManagedAccountsLoadError)
-      }
+      if (section === 'accounts' && !waitForWorkspaceDetails) activateDeferredWorkspaceSection(section, marketingView)
 
       if (section === 'professionals') {
         ensureProfessionalMedia().catch((error) => showCrmToast(error.message, 'error'))
@@ -37601,14 +38172,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         })
       }
 
-      if (section === 'campaigns' && !state.campaignsLoaded) {
-        loadCampaigns()
+      if (section === 'campaigns' && !waitForWorkspaceDetails) {
+        activateDeferredWorkspaceSection(section, marketingView)
       }
-      if (section === 'campaigns') setMarketingView(state.marketingView)
-      if (section === 'campaigns' && !state.templatesLoaded) loadWhatsappTemplates()
-      if (section === 'settings') {
-        setSettingsView(state.settingsView)
-        ensureBusinessMedia().catch((error) => showCrmToast(error.message, 'error'))
+      if (section === 'settings' && !waitForWorkspaceDetails) {
+        activateDeferredWorkspaceSection(section, marketingView)
       }
       if (deferredWorkspace && ['conversations', 'professionals', 'services', 'reports'].includes(section)) {
         ensureWorkspaceDetails().catch((error) => showCrmToast(error.message, 'error'))
@@ -37624,6 +38192,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         if (isMobile()) setMobileView('inbox')
       }
       closeMobileDrawer()
+      if (waitForWorkspaceDetails) {
+        loadDeferredWorkspaceSection(section, workspace, navigation, marketingView)
+      }
     }
 
     function startOfWeek(date) {
@@ -38794,8 +39365,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     document.getElementById('mobile-nav-overlay')?.addEventListener('click', closeMobileDrawer)
     document.querySelectorAll('[data-mobile-section]').forEach((button) => {
       button.addEventListener('click', () => {
-        if (button.dataset.marketingNav) setMarketingView(button.dataset.marketingNav)
-        setSection(button.dataset.mobileSection)
+        setSection(button.dataset.mobileSection, { marketingView: button.dataset.marketingNav })
       })
     })
 
@@ -39440,6 +40010,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       syncStaffProfileFields()
     })
     els.staffUserPreset?.addEventListener('change', () => applyStaffPreset(els.staffUserPreset.value))
+    els.staffPermissionSearch?.addEventListener('input', syncStaffPermissionOverview)
     for (const field of Object.values(staffPermissionFields())) field?.addEventListener('change', markStaffPermissionsCustom)
     els.staffUserList?.addEventListener('click', (event) => {
       const editButton = event.target.closest('[data-edit-staff-user]')
@@ -39845,7 +40416,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       renderAgendaProfessionalControls()
       await loadAgenda({ preferCached: true })
     })
-    els.agendaService.addEventListener('change', renderAgenda)
     els.agendaStep.addEventListener('change', renderAgenda)
     els.agendaToday.addEventListener('click', async () => {
       await navigateAgendaToDate(new Date())

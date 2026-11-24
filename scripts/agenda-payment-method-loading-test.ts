@@ -5,8 +5,8 @@ import ts from 'typescript'
 import { appointmentFinanceMarkup, cashRegisterScript } from '../src/routes/crm-ui/cash-register.js'
 
 const ast = ts.createSourceFile('cash-ui.js', cashRegisterScript, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
-const names = ['configuredPaymentLine', 'selectDefaultPaymentMethod', 'renderConfiguredPaymentMethods', 'loadCashPaymentMethods', 'loadCreateAppointmentCashState', 'loadAppointmentFinance', 'showAppointmentFinanceError', 'submitAppointmentPayment', 'submitAppointmentDeposit', 'readCreateAppointmentPayment', 'prepareAppointmentFinance']
-const functions = ast.statements.filter((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && (names.includes(node.name?.text || '') || ['appointmentPaymentOperationKey', 'syncAppointmentPaymentLoading'].includes(node.name?.text || ''))).map((node) => node.getText(ast)).join('\n')
+const names = ['configuredPaymentLine', 'selectDefaultPaymentMethod', 'renderConfiguredPaymentMethods', 'loadCashPaymentMethods', 'loadCreateAppointmentCashState', 'loadAppointmentFinance', 'showAppointmentFinanceError', 'submitAppointmentPayment', 'submitAppointmentDeposit', 'readCreateAppointmentPayment', 'prepareAppointmentFinance', 'appointmentPaymentOperationKey', 'syncAppointmentPaymentLoading', 'cashRegisterScopeKey', 'cashRegisterScopeIsCurrent', 'startCashRealtimeEvents', 'stopCashRealtimeEvents']
+const functions = ast.statements.filter((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && names.includes(node.name?.text || '')).map((node) => node.getText(ast)).join('\n')
 const shell = readFileSync(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')
 const buttonHelperStart = shell.indexOf('    function setButtonLoading(')
 const buttonHelper = shell.slice(buttonHelperStart, shell.indexOf('    async function withButtonLoading(', buttonHelperStart))
@@ -34,6 +34,10 @@ function deferred() {
 
 async function flush() { for (let index = 0; index < 20; index++) await Promise.resolve() }
 
+const previousEntry = { id: 'previous-payment', amount: 50 }
+const newEntry = { id: 'new-payment', amount: 100, method: 'CASH', effectiveAt: '2026-01-01T12:00:00.000Z' }
+const recordedPayment = { entries: [newEntry], finance: { agreedAmount: 150, discountAmount: 0, finalAmount: 150, paidAmount: 150, balanceAmount: 0 }, completion: null }
+
 function select(kind = 'CASH') {
   let options = ['CASH', 'TRANSFER', 'CARD'].map((value) => ({ value, dataset: {} as Record<string, string> }))
   let value = kind
@@ -50,8 +54,8 @@ function select(kind = 'CASH') {
 function harness(role = 'STAFF') {
   const state: any = { businessId: 'salon-1', currentUser: { role }, editingAppointmentId: 'appointment-1', cashRegister: {
     paymentMethods: [], appointmentFinanceRequestId: 0, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, appointmentFinanceSummaryCache: {},
-    appointmentFinance: { balanceAmount: 100 }, current: { session: { id: 'session-1' } }, editFinance: {}, createFinance: { collectTotal: true }
-  } }
+    appointmentFinance: { accountId: 'account-1', agreedAmount: 150, discountAmount: 0, balanceAmount: 100, paidAmount: 50, entries: [previousEntry] }, current: { session: { id: 'session-1' } }, editFinance: {}, createFinance: { collectTotal: true }
+  }, agendaAppointments: [{ id: 'appointment-1', status: 'CONFIRMED', startAt: '2026-01-01', financeSummary: { accountId: 'account-1', balanceAmount: 100 } }] }
   const cashUi: any = Object.fromEntries(['operationMethod', 'productSaleMethod', 'professionalPaymentMethod', 'createDepositMethod', 'createPaymentMethod', 'createPaymentMethodTwo', 'editDepositMethod', 'paymentMethod', 'paymentMethodTwo'].map((name) => [name, select(name.includes('Two') || name.includes('Deposit') ? 'TRANSFER' : 'CASH')]))
   Object.assign(cashUi, {
     paymentSubmit: button(), finance: { hidden: false, open: true },
@@ -71,12 +75,17 @@ function harness(role = 'STAFF') {
     cashScoped: (url: string) => url + '?businessId=' + state.businessId,
     escapeHtml: (value: string) => value,
     appointmentFinanceCacheKey: (id: string) => state.businessId + ':' + id,
-    resetAppointmentFinanceView: () => {}, cacheAppointmentFinanceSummary: () => {}, renderAgenda: () => {},
+    resetAppointmentFinanceView: () => {}, cacheAppointmentFinanceSummary: () => {}, renderAgenda: () => {}, invalidateCashRegister: () => {},
     prepareCreateAppointmentPayment: () => {}, prepareAppointmentProducts: () => {}, hydrateIcons: () => {},
     renderAppointmentFinance: (finance: any) => { state.cashRegister.appointmentFinance = finance },
+    renderAppointmentFinanceSummary: (finance: any) => { state.cashRegister.appointmentFinance = finance },
+    prepareCompletedServiceCorrection: () => {},
     syncCreateAppointmentPayment: () => { cashUi.createPaymentFeedback.textContent = '' },
     showCrmToast: (message: string) => toasts.push(message), isCashBusinessScopedRole: () => role !== 'STAFF',
-    loadAgenda: async () => {}, els: { appShell: { dataset: { section: 'agenda' } } },
+    editingAgendaAppointment: () => state.agendaAppointments.find((item: any) => item.id === state.editingAppointmentId),
+    applyAgendaAppointmentResult: (id: string, data: any) => { state.agendaAppointments = state.agendaAppointments.map((item: any) => item.id === id ? data : item); return true },
+    refreshAgendaAppointment: async () => {},
+    loadAgenda: async () => {}, els: { appShell: { dataset: { section: 'agenda' } }, appointmentTitle: {}, appointmentComplete: {}, appointmentNoShow: {} },
     calculateCreateAppointmentTotals: () => ({ price: { total: 100 }, final: 100, depositAmount: 0 }),
     getJson: async (url: string, options?: any) => {
       calls.push({ url, payload: options?.body && JSON.parse(options.body) })
@@ -87,8 +96,8 @@ function harness(role = 'STAFF') {
       if (url.includes('payment-context')) return { session: { id: 'session-1' } }
       if (url.includes('/finance')) return { accountId: 'account-1', balanceAmount: 100 }
       if (url.endsWith('/payments')) {
-        if (paymentFailure) throw new Error('Revisá los datos ingresados')
-        return {}
+        if (paymentFailure) throw Object.assign(new Error('Revisá los datos ingresados'), { status: 400 })
+        return recordedPayment
       }
       throw new Error('Unexpected request ' + url)
     }
@@ -231,6 +240,7 @@ assert.ok(feedbackAt < appointmentFinanceMarkup.indexOf('id="appointment-finance
 {
   const h = harness()
   await h.context.loadCashPaymentMethods()
+  h.state.cashRegister.appointmentFinanceCache['salon-1:appointment-1'] = h.state.cashRegister.appointmentFinance
   h.cashUi.paymentCompleteRow.hidden = false
   h.cashUi.paymentComplete.checked = true
   const payment = deferred(), finance = deferred(), agenda = deferred()
@@ -246,15 +256,32 @@ assert.ok(feedbackAt < appointmentFinanceMarkup.indexOf('id="appointment-finance
   await h.context.submitAppointmentPayment({ preventDefault() {} })
   await flush()
   assert.equal(posts, 1, 'double click cannot submit another payment')
-  payment.resolve()
+  assert.equal(h.state.agendaAppointments[0].status, 'CONFIRMED', 'do not complete before the POST succeeds')
+  payment.resolve({ ...recordedPayment, completion: { appointmentId: 'appointment-1', status: 'COMPLETED', completedAt: '2026-01-01' } })
   await flush()
+  assert.equal(h.cashUi.paymentSubmit.disabled, false, 'release the action on POST success')
+  assert.equal(financeRefreshes, 0, 'loaded finance can use the POST result directly')
+  assert.equal(agendaRefreshes, 0, 'never refresh the whole agenda range after payment')
+  assert.equal(h.state.agendaAppointments[0].status, 'COMPLETED')
+  assert.equal(h.state.agendaAppointments[0].financeSummary.balanceAmount, 0)
+  assert.equal(h.state.cashRegister.appointmentFinance.balanceAmount, 0)
+  assert.deepEqual(Array.from(h.state.cashRegister.appointmentFinance.entries, (entry: any) => entry.id), ['new-payment', 'previous-payment'])
+  assert.equal(h.state.cashRegister.appointmentFinance.entries[0].effectiveAt, newEntry.effectiveAt)
+  let cashChanged!: (event: { data: string }) => void
+  h.context.window = {
+    EventSource: class { addEventListener(_name: string, handler: typeof cashChanged) { cashChanged = handler } }
+  }
+  h.context.EventSource = h.context.window.EventSource
+  h.context.document = { body: { dataset: { currentSection: 'agenda' } } }
+  let summaryRefreshes = 0
+  h.context.refreshVisibleAppointmentFinanceSummaries = () => { summaryRefreshes++ }
+  h.context.startCashRealtimeEvents()
+  cashChanged({ data: JSON.stringify({ businessId: 'salon-1', entity: 'ENTRY', entityId: newEntry.id }) })
+  assert.equal(summaryRefreshes, 0, 'acknowledge an exact entry already loaded from the POST')
+  assert.equal(financeRefreshes, 0)
+  cashChanged({ data: JSON.stringify({ businessId: 'salon-1', entity: 'ENTRY', entityId: 'another-user-payment' }) })
+  assert.equal(summaryRefreshes, 1, 'other payment events still refresh finance summaries')
   assert.equal(financeRefreshes, 1)
-  assert.equal(h.cashUi.paymentSubmit.disabled, true, 'hold busy state during finance refresh')
-  finance.resolve()
-  await flush()
-  assert.equal(agendaRefreshes, 1)
-  assert.equal(h.cashUi.paymentSubmit.classList.contains('is-loading'), true, 'hold spinner through Agenda refresh')
-  agenda.resolve()
   await saving
   assert.equal(h.cashUi.paymentSubmit.disabled, false)
   assert.equal(h.cashUi.paymentSubmit.textContent, 'Registrar pago')
@@ -294,43 +321,81 @@ for (const outcome of ['resolve', 'reject'] as const) {
   const current = h.context.submitAppointmentPayment({ preventDefault() {} })
   await flush()
   const currentFeedback = h.cashUi.financeFeedback.textContent
-  if (outcome === 'resolve') oldPayment.resolve()
+  if (outcome === 'resolve') oldPayment.resolve(recordedPayment)
   else oldPayment.reject(new Error('Old payment failed'))
   await previous
   assert.equal(posts, 2)
   assert.equal(h.cashUi.paymentSubmit.disabled, true, 'old cleanup cannot enable the new payment action')
   assert.equal(h.cashUi.financeFeedback.textContent, currentFeedback)
   assert.equal(h.toasts.length, 0, 'old completion does not notify the new appointment')
-  newPayment.resolve()
+  newPayment.resolve(recordedPayment)
   await current
   assert.equal(h.cashUi.paymentSubmit.disabled, false)
 }
 
-for (const phase of ['finance', 'agenda']) {
-  for (const outcome of ['resolve', 'reject'] as const) {
-    const h = harness()
-    await h.context.loadCashPaymentMethods()
-    h.cashUi.paymentCompleteRow.hidden = false
-    h.cashUi.paymentComplete.checked = true
-    const refresh = deferred()
-    let refreshing = false
-    h.context.loadAppointmentFinance = async () => {
-      if (phase === 'finance') { refreshing = true; return refresh.promise }
+{
+  const h = harness()
+  await h.context.loadCashPaymentMethods()
+  const staleFinance = deferred()
+  const originalGet = h.context.getJson
+  h.context.getJson = (url: string, options?: any) => url.includes('/finance') ? staleFinance.promise : originalGet(url, options)
+  h.state.cashRegister.appointmentFinanceCache['salon-1:appointment-1'] = h.state.cashRegister.appointmentFinance
+  const earlierRead = h.context.loadAppointmentFinance({ force: true })
+  await flush()
+  await h.context.submitAppointmentPayment({ preventDefault() {} })
+  staleFinance.resolve({ accountId: 'account-1', balanceAmount: 100 })
+  await earlierRead
+  assert.equal(h.state.cashRegister.appointmentFinance.balanceAmount, 0, 'a pre-payment read cannot overwrite the result')
+  assert.equal(h.state.cashRegister.appointmentFinanceCache['salon-1:appointment-1'].balanceAmount, 0)
+}
+
+{
+  const h = harness()
+  const detail = deferred()
+  const originalGet = h.context.getJson
+  h.context.getJson = (url: string, options?: any) => url.includes('/finance') ? detail.promise : originalGet(url, options)
+  await h.context.submitAppointmentPayment({ preventDefault() {} })
+  assert.equal(h.state.cashRegister.appointmentFinance.paidAmount, 150)
+  assert.ok(h.toasts.includes('Pago registrado.'), 'missing history cannot delay success')
+  assert.ok(!h.calls.some((call) => call.url.includes('payment-context')), 'background history can reuse the active session')
+  detail.resolve({ ...recordedPayment.finance, entries: [newEntry, previousEntry] })
+  await flush()
+  assert.equal(h.cashUi.financeFeedback.textContent, 'Pago registrado.', 'background history preserves success feedback')
+}
+
+{
+  const h = harness()
+  const detail = deferred()
+  const originalGet = h.context.getJson
+  let posts = 0
+  h.context.getJson = (url: string, options?: any) => {
+    if (url.includes('/finance')) return detail.promise
+    if (url.endsWith('/payments')) {
+      posts++
+      return Promise.reject(Object.assign(new Error('Connection closed'), { status: 503 }))
     }
-    h.context.loadAgenda = async () => { refreshing = true; return refresh.promise }
-    const saving = h.context.submitAppointmentPayment({ preventDefault() {} })
-    await flush()
-    assert.equal(refreshing, true, phase + ' refresh reached')
-    h.state.editingAppointmentId = 'appointment-2'
-    h.context.prepareAppointmentFinance({ id: 'appointment-2' })
-    h.cashUi.financeFeedback.textContent = 'Current appointment feedback'
-    if (outcome === 'resolve') refresh.resolve()
-    else refresh.reject(new Error('Previous refresh failed'))
-    await saving
-    assert.equal(h.cashUi.financeFeedback.textContent, 'Current appointment feedback')
-    assert.equal(h.toasts.length, 0, 'late ' + phase + ' refresh cannot notify another appointment')
-    assert.equal(h.cashUi.paymentSubmit.disabled, false)
+    return originalGet(url, options)
   }
+  const saving = h.context.submitAppointmentPayment({ preventDefault() {} })
+  await flush()
+  assert.equal(h.cashUi.paymentSubmit.disabled, true, 'uncertain payment keeps the duplicate guard during reconciliation')
+  await h.context.submitAppointmentPayment({ preventDefault() {} })
+  assert.equal(posts, 1)
+  detail.resolve({ ...recordedPayment.finance, entries: [newEntry] })
+  await saving
+  assert.equal(h.state.cashRegister.appointmentFinance.balanceAmount, 0)
+  assert.match(h.cashUi.financeFeedback.textContent, /No se pudo confirmar el cobro/)
+}
+
+{
+  const h = harness()
+  h.context.applyAgendaAppointmentResult = () => { throw new Error('Render failed') }
+  h.context.loadAppointmentFinance = async () => {}
+  let reconciliation = ''
+  h.context.refreshAgendaAppointment = async (id: string) => { reconciliation = id }
+  await h.context.submitAppointmentPayment({ preventDefault() {} })
+  assert.equal(reconciliation, 'appointment-1', 'reconcile only the appointment that was paid')
+  assert.match(h.cashUi.financeFeedback.textContent, /Pago registrado/, 'a projection error cannot misreport a confirmed charge')
 }
 
 console.log('Agenda payment UI: configured methods, roles, loading, duplicate prevention, refresh and context isolation OK')

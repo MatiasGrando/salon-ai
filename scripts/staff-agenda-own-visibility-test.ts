@@ -46,18 +46,19 @@ function user(overrides: Record<string, unknown> = {}) {
 }
 
 function agendaContext(currentUser = user()) {
-  const els: any = { agendaProfessional: select(), agendaService: select(), agendaProfessionalTabs: { innerHTML: '', querySelectorAll: () => [] }, agendaLegend: { innerHTML: '' } }
+  const els: any = { agendaProfessional: select(), agendaProfessionalTabs: { innerHTML: '', querySelectorAll: () => [] }, agendaLegend: { innerHTML: '' } }
   const state: any = { currentUser, businessId: 'business-a', business: { id: 'business-a' }, professionals: professionals.map((professional) => ({ ...professional })), agendaProfessionalCatalogScope: null, agendaProfessionalPreferenceScope: null,
+    agendaPendingMoves: new Map(),
     agendaAppointments: ['own', 'other'].map((professionalId) => ({ id: 'appointment-' + professionalId, professionalId, status: 'CONFIRMED', startAt: '2026-10-28T12:00:00Z' })),
     agendaBlocks: ['own', 'other', null].map((professionalId) => ({ id: 'block-' + professionalId, professionalId, startAt: '2026-10-28T12:00:00Z', endAt: '2026-10-28T13:00:00Z' })) }
   const context: any = {
     state,
     els,
     escapeHtml: (value: string) => value,
-    bookableServices: () => [],
+    agendaDragLockPreferenceKey: () => 'test-agenda',
     localStorage: { getItem: () => null, setItem() {} }
   }
-  const handlers = ['activeProfessionals', 'isOwnAgendaScope', 'agendaOwnProfessionalId', 'agendaVisibleProfessionals', 'agendaProfessionalColor', 'validAgendaProfessionalFilter', 'agendaProfessionalPreferenceKey', 'restoreAgendaProfessionalFilter', 'renderAgendaFilters', 'renderAgendaProfessionalControls', 'renderAgendaMobileFilterPanel', 'filteredAgendaAppointmentsForRange', 'filteredAgendaBlocksForRange']
+  const handlers = ['activeProfessionals', 'isOwnAgendaScope', 'agendaOwnProfessionalId', 'agendaVisibleProfessionals', 'agendaProfessionalColor', 'validAgendaProfessionalFilter', 'agendaProfessionalPreferenceKey', 'restoreAgendaProfessionalFilter', 'renderAgendaFilters', 'renderAgendaProfessionalControls', 'renderAgendaStaffSelect', 'filteredAgendaAppointmentsForRange', 'filteredAgendaBlocksForRange']
   runInNewContext(handlers.map(source).join('\n'), context)
   state.agendaProfessionalCatalogScope = context.agendaProfessionalPreferenceKey()
   return context
@@ -67,7 +68,7 @@ function mobileContext(currentUser = user()) {
   const context = agendaContext(currentUser)
   const gridWrap: any = { innerHTML: '', classList: { toggle() {} }, querySelector: () => null, querySelectorAll: () => [] }
   Object.assign(context.els, { agendaGridWrap: gridWrap, agendaRange: { textContent: '' }, agendaToday: { textContent: '' }, agendaProfessionalTabs: { innerHTML: '', querySelectorAll: () => [] }, agendaLegend: { innerHTML: '' } })
-  Object.assign(context.state, { agendaViewDays: 1, agendaSelectedDate: new Date('2026-10-28T12:00:00Z'), agendaProfessionalResizeObserver: null, agendaMobileMonthOpen: false, agendaMobileFiltersOpen: false, agendaDragLocked: true })
+  Object.assign(context.state, { agendaViewDays: 1, agendaSelectedDate: new Date('2026-10-28T12:00:00Z'), agendaProfessionalResizeObserver: null, agendaMobileMonthOpen: false, agendaDragLocked: true })
   Object.assign(context, {
     syncAgendaDragLockControl() {},
     startOfDay: (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())),
@@ -117,7 +118,6 @@ assert.deepEqual([...own.agendaVisibleProfessionals()].map((professional: any) =
 assert.doesNotMatch(own.els.agendaProfessional.innerHTML, /Todos/)
 assert.doesNotMatch(own.els.agendaProfessionalTabs.innerHTML, /Carolina|Todos/)
 assert.doesNotMatch(own.els.agendaLegend.innerHTML, /Carolina/)
-assert.doesNotMatch(own.renderAgendaMobileFilterPanel(), /Carolina|Todos los profesionales/)
 
 const secretary = agendaContext(user({ staffProfile: 'SECRETARY', agendaScope: 'ALL', professionalId: null }))
 secretary.renderAgendaFilters()
@@ -155,15 +155,32 @@ for (const invalid of ['inactive', 'foreign']) {
 const mobileOwn = mobileContext()
 mobileOwn.renderAgendaFilters()
 mobileOwn.renderAgendaMobileThreeDay()
+assert.match(mobileOwn.els.agendaGridWrap.innerHTML, /<label class="agenda-gcal-staff[^"\r\n]*">[\s\S]*?Staff[\s\S]*?<select\b[^>]*data-agenda-mobile-professional[^>]*>/, 'la barra tiene un selector Staff directo')
+const ownStaffOptions = mobileOwn.els.agendaGridWrap.innerHTML.match(/<select\b[^>]*data-agenda-mobile-professional[^>]*>([\s\S]*?)<\/select>/)?.[1] || ''
+assert.match(ownStaffOptions, /Gaspar/)
+assert.doesNotMatch(ownStaffOptions, /Carolina|Todos/)
+assert.doesNotMatch(mobileOwn.els.agendaGridWrap.innerHTML, /data-agenda-mobile-(?:filters|service)|agenda-gcal-filter-panel/)
 assert.match(mobileOwn.els.agendaGridWrap.innerHTML, /<header>own<\/header>/)
 assert.match(mobileOwn.els.agendaGridWrap.innerHTML, /<event>appointment-own<\/event>/)
 assert.doesNotMatch(mobileOwn.els.agendaGridWrap.innerHTML, /other/)
 
 const mobileSecretary = mobileContext(user({ staffProfile: 'SECRETARY', agendaScope: 'ALL', professionalId: null }))
+mobileSecretary.renderAgendaFilters()
 mobileSecretary.renderAgendaMobileThreeDay()
+const secretaryStaffOptions = mobileSecretary.els.agendaGridWrap.innerHTML.match(/<select\b[^>]*data-agenda-mobile-professional[^>]*>([\s\S]*?)<\/select>/)?.[1] || ''
+assert.match(secretaryStaffOptions, /<option value="">Todos[^<]*<\/option>/)
+assert.match(secretaryStaffOptions, /Gaspar/)
+assert.match(secretaryStaffOptions, /Carolina/)
+assert.doesNotMatch(mobileSecretary.els.agendaGridWrap.innerHTML, /data-agenda-mobile-(?:filters|service)|agenda-gcal-filter-panel/)
+assert.doesNotMatch(html, /<select id="agenda-service"/)
 assert.match(mobileSecretary.els.agendaGridWrap.innerHTML, /<header>other<\/header><header>own<\/header>/)
 assert.match(mobileSecretary.els.agendaGridWrap.innerHTML, /appointment-other/)
 assert.match(mobileSecretary.els.agendaGridWrap.innerHTML, /appointment-own/)
+mobileSecretary.els.agendaProfessional.value = 'other'
+mobileSecretary.renderAgendaMobileThreeDay()
+assert.match(mobileSecretary.els.agendaGridWrap.innerHTML, /<option value="other" selected>Carolina<\/option>/, 'Staff refleja el filtro elegido al volver a dibujar')
+assert.match(mobileSecretary.els.agendaGridWrap.innerHTML, /appointment-other/)
+assert.doesNotMatch(mobileSecretary.els.agendaGridWrap.innerHTML, /appointment-own/)
 
 for (const viewDays of [3, 7]) {
   const ownDays = mobileContext()
@@ -178,4 +195,40 @@ for (const viewDays of [3, 7]) {
   assert.match(allDays.els.agendaGridWrap.innerHTML, /appointment-other/)
 }
 
-console.log('OK staff Agenda own visibility: labels, selectors, tabs, mobile filters, real 1/3/7-day events and invalid-link denial')
+function renderedBlockIds(markup: string) {
+  return [...markup.matchAll(/<block>([^<]+)<\/block>/g)].map((match) => match[1]).sort()
+}
+
+const allBlocks = ['block-null', 'block-other', 'block-own']
+for (const [label, currentUser, selectedProfessional] of [
+  ['secretary', user({ staffProfile: 'SECRETARY', agendaScope: 'ALL', professionalId: null }), ''],
+  ['administrator', user({ role: 'BUSINESS_ADMIN', agendaScope: 'ALL', professionalId: null }), ''],
+  ['own scope', user(), ''],
+  ['selected professional', user({ staffProfile: 'SECRETARY', agendaScope: 'ALL', professionalId: null }), 'own']
+] as const) {
+  for (const viewDays of [3, 7]) {
+    const context = mobileContext(currentUser)
+    context.state.agendaViewDays = viewDays
+    context.els.agendaProfessional = { value: selectedProfessional }
+    const originalBlocks = context.state.agendaBlocks
+    const originalData = JSON.stringify(originalBlocks)
+    context.renderAgendaMobileThreeDay()
+    assert.deepEqual(renderedBlockIds(context.els.agendaGridWrap.innerHTML), ['block-null'], label + ' in ' + viewDays + ' days shows only salon blocks')
+    assert.equal(context.state.agendaBlocks, originalBlocks, label + ' keeps the original block collection')
+    assert.equal(JSON.stringify(context.state.agendaBlocks), originalData, label + ' leaves block data unchanged')
+    const scopedIds = label === 'own scope' || selectedProfessional ? ['block-null', 'block-own'] : allBlocks
+    assert.deepEqual([...context.filteredAgendaBlocksForRange(from, to)].map((block: any) => block.id).sort(), scopedIds, label + ' keeps personal blocks in the base filter')
+  }
+}
+
+const dailyBlocks = mobileContext(user({ staffProfile: 'SECRETARY', agendaScope: 'ALL', professionalId: null }))
+for (const professional of professionals) {
+  const markup = dailyBlocks.renderAgendaProfessionalDayColumn(from, professional, 88, { start: 8 * 60, end: 20 * 60 })
+  assert.deepEqual(renderedBlockIds(markup), ['block-null', 'block-' + professional.id].sort(), 'daily column keeps salon and matching professional blocks')
+}
+assert.deepEqual(renderedBlockIds(mobileOwn.els.agendaGridWrap.innerHTML), ['block-null', 'block-own'], 'own daily view keeps personal blocks')
+dailyBlocks.els.agendaProfessional = { value: 'own' }
+dailyBlocks.renderAgendaMobileThreeDay()
+assert.deepEqual(renderedBlockIds(dailyBlocks.els.agendaGridWrap.innerHTML), ['block-null', 'block-own'], 'selected professional daily view keeps personal blocks')
+
+console.log('OK staff Agenda own visibility: labels, selectors, tabs, toolbar Staff, real 1/3/7-day events and invalid-link denial')
