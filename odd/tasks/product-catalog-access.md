@@ -12,7 +12,7 @@ Base main 64dc136359e1ad756432ef1f050948d4ecaff56a, con archivos rastreados limp
 ## Tareas
 - [x] P1. Observar RED con AuthGuard y rutas reales offline: GET autenticado denegado y formulario que bloquea categoría vacía. Cubrir roles autorizados, staff restringido y aislamiento por comercio.
 - [x] P2. Corregir las rutas internas y el acceso acotado de ACCOUNT_ADMIN; ofrecer Sin categoría, conservar null al editar y enviarlo explícitamente. Mantener rechazo de categorías ajenas/inactivas y las reglas existentes.
-- [ ] P3. Observar GREEN de catálogo, permisos, UI y rutas públicas; ejecutar sintaxis, UTF-8 y diff. Guardar work-unit commit, evaluación nativa, límites y siguiente paso de publicación.
+- [x] P3. Observar GREEN de catálogo, permisos, UI y rutas públicas; ejecutar sintaxis, UTF-8 y diff. Guardar work-unit commit, evaluación nativa, límites y siguiente paso de publicación.
 
 ## Ruta y comprobaciones
 Ruta delegated direct por preparación de cuatro o más fuentes y escritura en dos o más archivos no triviales. El padre coordina Git y documentación. TDD estricto: strict_tdd:true de openspec/config.yaml. Runner: node node_modules/tsx/dist/cli.mjs scripts/<suite>.ts. Se exige RED antes del arreglo, GREEN y revisión del diff; no se elude el middleware en la prueba.
@@ -37,3 +37,17 @@ GREEN observado: product-catalog-access-test.ts y product-catalog-ui-test.ts. La
 Regresiones PASS: product-sales-service-contract-test.ts, product-sales-ui-contract-test.ts, appointment-product-sales-contract-test.ts, cash-treasury-access-contract-test.ts, cash-permissions-contract-test.ts, staff-auth-session-settlements-contract-test.ts y crm-ui-inline-syntax-test.ts (dos scripts). npm run test:text-encoding PASS y git diff --check PASS. Runner node node_modules/tsx/dist/cli.mjs; URL ficticia 127.0.0.1:1 y dotenv inexistente. No se accedió a DB/IA/red reales, producción, sesiones o datos del usuario.
 
 P3 queda pendiente del commit/evaluación nativa del padre; todas las comprobaciones focales de esta unidad terminaron verdes. No se ejecutó typecheck global ni una suite visual nueva: el cambio no altera distribución, estilos o redimensionado; el selector y el guardado se comprobaron por ejecución y HTML real. Engram continúa sin herramienta, espejo pendiente. No hubo stage/commit, merge/push, revisión ni reinicio de servidores por este escritor.
+
+
+## Verificación del padre y commit revisable
+Commit e541eca: 5 archivos, 269 adiciones y 5 eliminaciones. El padre revisó las dos fuentes y las pruebas nuevas: solo se agregan rutas/métodos concretos y namespaces internos; no se cambia el permiso de productos ni el control de comercio. La opción vacía se representa como null y editar un producto sin categoría no reutiliza una selección anterior. El producto extranjero del fixture existe y permanece sin cambios tras el rechazo. Índice y diffcheck completos, incluidos archivos nuevos, pasaron. Encoding previo observado por el escritor.
+
+Modo nativo verificado ON por preferencia global, sin modificación. Evaluación de 64dc136..e541eca: high por auth-guard, 274 líneas, review_due por high_risk. Se ejecutó el STATUS canónico, se declaró el inventario de temporales excluido y quedó listo el candidato sha256:fb53e75ca67f0e618194cc95bd4f57fbefc569a70dc07661ab1e8c1e6313af1a. No se ejecutó ningún revisor. Se envió al usuario una decisión concreta sobre revisión e integración/publicación de esta corrección en origin/main de MatiasGrando/salon-ai con la sesión Git configurada. La respuesta sigue pendiente; no se consultó ni se modificó ningún remoto.
+
+P3: todas las comprobaciones funcionales locales están verdes y el commit está guardado; solo falta resolver la decisión nativa y la publicación. No hay migración, cambios de permisos ni datos. Espejo Engram pendiente por herramienta no disponible.
+
+
+## Decisión del usuario: conservar solo local
+El usuario eligió «Dejar la corrección solo local». La implementación verificada queda guardada en e541eca, rama codex/fix-product-catalog-access. No se integra ni publica en main y no se ejecuta revisión externa. Esa respuesta no se registra como una omisión explícita de revisión: el candidato sigue sin consentimiento de revisión; al retomar se debe consultar el estado nativo exacto antes de cualquier revisor.
+
+P3 queda cerrado en su alcance de corrección local: RED/GREEN, regresiones, sintaxis, UTF-8, diff, commit y evaluación observados. La publicación deja de formar parte del resultado solicitado por decisión del usuario. El cierre documental no cambia el producto; las limitaciones de pruebas ya declaradas y el espejo Engram pendiente se conservan. No se accedió a remotos, servidores ni datos reales en esta corrección.
