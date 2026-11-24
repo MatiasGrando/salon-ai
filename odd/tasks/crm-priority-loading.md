@@ -22,6 +22,14 @@ RED: el contrato VM con `setSection` real del HTML servido dejó Ajustes en Agen
 
 A7 quedó en `1cbfe1a`. Se verificó la transición Ajustes → Instagram → Caja con la carga común pendiente y la recepción tardía sin saltos. Pasaron también los contratos de precarga de Agenda, alcance y carga de Caja, interfaz de Instagram, sintaxis e interactividad del CRM, UTF-8 y `git diff --check`. Evaluación local media, 245 líneas, por debajo del umbral. Pendiente comprobar en producción cuando se autorice la publicación.
 
+### Desplegable Staff en Agenda
+
+- [x] A9. Reemplazar «Filtros» por el desplegable «Staff» en la barra, eliminar el filtro de servicio y conservar la selección por profesional en el menú lateral y en la agenda. Verificar alcance propio y general, y la interacción en pantalla angosta.
+
+Ruta delegada directa para mapa y regresión. TDD STRICT heredado. Runner: `node node_modules/tsx/dist/cli.mjs scripts/staff-agenda-own-visibility-test.ts`. Forecast 100–180 líneas. Espejo Engram pendiente por acceso a la base local.
+
+RED por ausencia de Staff; GREEN en visibilidad, selección, arrastre, precarga, alcance, sintaxis y codificación. Chrome aislado comprobó foco, ancho y selección a 320, 390, 490 y 1100 px. La suite de persistencia pasó 12 casos y conserva un fallo previo en su fixture por `crmWorkspaceVersion` ausente. Pendiente verificar en CRM desplegado.
+
 ### Selector de profesionales al bloquear agenda
 
 - [x] A6. Abrir «Bloquear agenda» desde el arranque en frío con el catálogo que ya carga Agenda. Conservar la preselección desde una columna y respetar los permisos. Comprobar que el panel espera si falta el catálogo, sin agregar consultas.

@@ -15003,22 +15003,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         transform: rotate(180deg);
       }
 
-      .agenda-gcal-filter {
-        min-height: 38px;
-        border: 1px solid #dbe4f0;
-        border-radius: 999px;
-        color: #1d4ed8;
-        background: #eff6ff;
-        font-size: 12px;
-        font-weight: 800;
-      }
-
-      .agenda-gcal-filter.active {
-        color: #ffffff;
-        border-color: #2563eb;
-        background: #2563eb;
-      }
-
       .agenda-gcal-today {
         border: 2px solid #2563eb;
         border-radius: 8px;
@@ -15108,32 +15092,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       .agenda-gcal-month-strip button.active {
         color: #ffffff;
         background: #2563eb;
-      }
-
-      .agenda-gcal-filter-panel {
-        padding: 0 18px 12px;
-        display: grid;
-        gap: 10px;
-        background: #f8fafc;
-      }
-
-      .agenda-gcal-filter-panel label {
-        display: grid;
-        gap: 5px;
-        color: #475569;
-        font-size: 12px;
-        font-weight: 800;
-      }
-
-      .agenda-gcal-filter-panel select {
-        width: 100%;
-        min-height: 42px;
-        border: 1px solid #dbe4f0;
-        border-radius: 10px;
-        padding: 0 12px;
-        color: #0f172a;
-        background: #ffffff;
-        font-size: 15px;
       }
 
       .agenda-gcal-frame {
@@ -15584,7 +15542,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .agenda-gcal-icon,
     .agenda-gcal-control,
     .agenda-gcal-title,
-    .agenda-gcal-filter,
+    .agenda-gcal-staff,
     .agenda-gcal-view-select {
       min-height: 38px;
       border: 1px solid #dbe4f0;
@@ -15607,8 +15565,39 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     .agenda-gcal-control,
-    .agenda-gcal-filter {
+    .agenda-gcal-staff {
       padding: 0 12px;
+    }
+
+    .agenda-gcal-staff {
+      position: relative;
+      gap: 5px;
+    }
+
+    .agenda-gcal-staff::after {
+      content: '';
+      border: 4px solid transparent;
+      border-bottom: 0;
+      border-top-color: currentColor;
+    }
+
+    .agenda-gcal-staff select {
+      position: absolute;
+      z-index: 1;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .agenda-gcal-staff:focus-within {
+      outline: 2px solid #2563eb;
+      outline-offset: -2px;
+    }
+
+    .agenda-gcal-staff:has(select:disabled) {
+      opacity: .55;
     }
 
     .agenda-gcal-title {
@@ -15643,15 +15632,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       padding: 0 10px;
     }
 
-    .agenda-gcal-filter.active,
+    .agenda-gcal-staff.active,
     .agenda-gcal-control.active {
       color: #1d4ed8;
       border-color: #93c5fd;
       background: #eff6ff;
     }
 
-    .agenda-gcal-month-panel,
-    .agenda-gcal-filter-panel {
+    .agenda-gcal-month-panel {
       z-index: 11;
       flex: 0 0 auto;
       border-bottom: 1px solid #dbe4f0;
@@ -15699,30 +15687,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     .agenda-gcal-month-strip button.active { color: #1d4ed8; background: #eff6ff; }
-
-    .agenda-gcal-filter-panel {
-      padding: 12px 14px;
-      display: flex;
-      gap: 12px;
-    }
-
-    .agenda-gcal-filter-panel label {
-      flex: 1 1 220px;
-      display: grid;
-      gap: 5px;
-      color: #475569;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .agenda-gcal-filter-panel select {
-      width: 100%;
-      min-height: 38px;
-      border: 1px solid #dbe4f0;
-      border-radius: 9px;
-      padding: 0 10px;
-      background: #fff;
-    }
 
     .agenda-gcal-frame {
       flex: 1 1 auto;
@@ -16564,7 +16528,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       .agenda-gcal-nav, .agenda-gcal-actions { order: 0; gap: 4px; }
       .agenda-gcal-nav [data-agenda-prev] { order: 0; }
       .agenda-gcal-actions { width: auto; margin-left: 0; flex-wrap: nowrap; }
-      .agenda-gcal-control, .agenda-gcal-filter { padding: 0 8px; }
+      .agenda-gcal-control, .agenda-gcal-staff { padding: 0 8px; }
+      .agenda-gcal-staff { min-height: 44px; }
       .agenda-gcal-toolbar .agenda-gcal-view-select {
         box-sizing: border-box;
         flex: 0 0 66px;
@@ -16577,8 +16542,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       .agenda-gcal-day-head strong { font-size: 11px; }
       .agenda-gcal-day-head span { width: 38px; height: 38px; font-size: 20px; }
       .agenda-gcal-fab { display: grid; width: 58px; height: 58px; right: 18px; bottom: calc(74px + env(safe-area-inset-bottom)); border-radius: 17px; place-items: center; color: #fff; background: #2563eb; font-size: 34px; box-shadow: 0 16px 34px rgba(37, 99, 235, .28); }
-      .agenda-gcal-filter-panel { flex-direction: column; }
-      .agenda-gcal-filter-panel label { flex-basis: auto; }
       .agenda-block-popover { place-items: end center; padding: 12px; }
       .agenda-block-popover .agenda-block-panel { width: 100%; max-height: min(82dvh, 720px); border-radius: 18px 18px 10px 10px; }
       .agenda-block-popover .agenda-block-panel .block-grid { grid-template-columns: 1fr; }
@@ -17163,12 +17126,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             <label for="agenda-professional">Profesional</label>
             <select id="agenda-professional">
               <option value="">Todos los profesionales</option>
-            </select>
-          </div>
-          <div class="agenda-filter">
-            <label for="agenda-service">Servicio</label>
-            <select id="agenda-service">
-              <option value="">Todos los servicios</option>
             </select>
           </div>
         </div>
@@ -20746,7 +20703,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaNowLineTimer: null,
       agendaBlockOpen: false,
       agendaMobileMonthOpen: false,
-      agendaMobileFiltersOpen: false,
       agendaMobileTouchStartX: null,
       agendaMobileTouchStartY: null,
       agendaMobileTouchStartScrollLeft: 0,
@@ -21629,7 +21585,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       mobileBack: document.getElementById('mobile-back'),
       appShell: document.getElementById('app-shell'),
       agendaProfessional: document.getElementById('agenda-professional'),
-      agendaService: document.getElementById('agenda-service'),
       agendaMonthPrev: document.getElementById('agenda-month-prev'),
       agendaMonthNext: document.getElementById('agenda-month-next'),
       agendaMonthTitle: document.getElementById('agenda-month-title'),
@@ -30084,10 +30039,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.agendaProfessional.value = impactedAppointment.professionalId
         if (els.agendaProfessional.value !== impactedAppointment.professionalId) els.agendaProfessional.value = ''
       }
-      if (els.agendaService && impactedAppointment.serviceId) {
-        els.agendaService.value = impactedAppointment.serviceId
-        if (els.agendaService.value !== impactedAppointment.serviceId) els.agendaService.value = ''
-      }
       setSection('agenda')
       await loadAgenda()
       const appointment = state.agendaAppointments.find((item) => item.id === impactedAppointment.id) || impactedAppointment
@@ -32185,7 +32136,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function renderAgendaFilters() {
       const selectedProfessional = els.agendaProfessional.value || ''
-      const selectedService = els.agendaService.value || ''
       const professionals = agendaVisibleProfessionals()
       els.agendaProfessional.innerHTML = (isOwnAgendaScope() ? [] : ['<option value="">Todos los profesionales</option>'])
         .concat(professionals.map((professional) => {
@@ -32196,13 +32146,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       restoreAgendaProfessionalFilter()
       if (isOwnAgendaScope()) els.agendaProfessional.value = agendaOwnProfessionalId()
 
-      const services = bookableServices()
-      els.agendaService.innerHTML = ['<option value="">Todos los servicios</option>']
-        .concat(services.map((service) => {
-          return '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + '</option>'
-        }))
-        .join('')
-      els.agendaService.value = services.some((service) => service.id === selectedService) ? selectedService : ''
       renderAgendaProfessionalControls()
     }
 
@@ -32830,9 +32773,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const columnProfessionals = professionalDayView ? agendaVisibleProfessionals() : []
       const startDate = startOfDay(state.agendaSelectedDate)
       const monthPanel = state.agendaMobileMonthOpen ? renderAgendaMobileMonthPanel() : ''
-      const filtersPanel = state.agendaMobileFiltersOpen ? renderAgendaMobileFilterPanel() : ''
       const monthTitle = formatAgendaMobileTitle(state.agendaMobileMonthOpen ? state.agendaMonthDate : state.agendaSelectedDate)
-      const filtersActive = state.agendaMobileFiltersOpen || Boolean(els.agendaProfessional.value || els.agendaService.value)
       const today = new Date()
       const currentDays = Array.from({ length: viewDays }, (_, index) => addDays(startDate, index))
       const displayRange = getAgendaDisplayRange(currentDays)
@@ -32871,7 +32812,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               '<select class="agenda-gcal-view-select" data-agenda-view-days aria-label="D&iacute;as visibles">' +
                 [1, 3, 7].map((count) => '<option value="' + count + '"' + (count === viewDays ? ' selected' : '') + '>' + count + (count === 1 ? ' d&iacute;a' : ' d&iacute;as') + '</option>').join('') +
               '</select>' +
-            '<button class="agenda-gcal-filter' + (filtersActive ? ' active' : '') + '" type="button" data-agenda-mobile-filters aria-expanded="' + String(state.agendaMobileFiltersOpen) + '">Filtros</button>' +
+            renderAgendaStaffSelect() +
             (canManageScheduleBlocks() ? '<button class="agenda-gcal-control' + (state.agendaBlockOpen ? ' active' : '') + '" type="button" data-agenda-block-toggle>Bloquear</button>' : '') +
             '</div>' +
             '<div class="agenda-gcal-nav">' +
@@ -32883,7 +32824,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             '<label class="agenda-gcal-drag-lock" title="Desmarc&aacute; para mover turnos arrastr&aacute;ndolos. Pod&eacute;s abrirlos y editarlos con el bloqueo activo."><input type="checkbox" data-agenda-drag-lock' + (!canDragAgendaAppointments() ? ' checked' : '') + (!canEditAppointments() || !state.agendaDragLockScope ? ' disabled' : '') + '>Bloquear arrastre de turnos</label>' +
           '</header>' +
           monthPanel +
-          filtersPanel +
           '<div class="agenda-gcal-frame' + (professionalDayView ? ' agenda-gcal-professional-frame' : '') + '" data-agenda-mobile-frame data-agenda-base-index="' + (professionalDayView ? 0 : bufferBefore) + '" data-agenda-day-count="' + (professionalDayView ? columnProfessionals.length : renderedDays.length) + '" data-agenda-view-days="' + viewDays + '"' + (professionalDayView ? ' data-agenda-professional-columns="true"' : '') + ' style="--agenda-hour-height:' + hourHeight + 'px;--agenda-slot-height:' + (hourHeight / 2) + 'px;--agenda-visible-hours:' + visibleHours + ';--agenda-grid-height:' + (visibleHours * hourHeight) + 'px;--agenda-professional-count:' + Math.max(1, columnProfessionals.length) + '">' +
             '<div class="agenda-gcal-days-head">' +
               (professionalDayView ? renderAgendaProfessionalDateCorner(startDate) : '<div></div>') +
@@ -33172,24 +33112,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       '</section>'
     }
 
-    function renderAgendaMobileFilterPanel() {
+    function renderAgendaStaffSelect() {
       const selectedProfessional = els.agendaProfessional.value || ''
-      const selectedService = els.agendaService.value || ''
       const professionalOptions = (isOwnAgendaScope() ? [] : ['<option value="">Todos los profesionales</option>'])
         .concat(agendaVisibleProfessionals().map((professional) => {
-          return '<option value="' + professional.id + '"' + (professional.id === selectedProfessional ? ' selected' : '') + '>' + escapeHtml(professional.name) + '</option>'
+          return '<option value="' + escapeHtml(professional.id) + '"' + (professional.id === selectedProfessional ? ' selected' : '') + '>' + escapeHtml(professional.name) + '</option>'
         }))
         .join('')
-      const serviceOptions = ['<option value="">Todos los servicios</option>']
-        .concat(bookableServices().map((service) => {
-          return '<option value="' + service.id + '"' + (service.id === selectedService ? ' selected' : '') + '>' + escapeHtml(serviceCatalogLabel(service)) + '</option>'
-        }))
-        .join('')
-
-      return '<section class="agenda-gcal-filter-panel">' +
-        '<label>Profesional<select data-agenda-mobile-professional>' + professionalOptions + '</select></label>' +
-        '<label>Servicio<select data-agenda-mobile-service>' + serviceOptions + '</select></label>' +
-      '</section>'
+      return '<label class="agenda-gcal-staff' + (selectedProfessional ? ' active' : '') + '">' +
+        '<span>Staff</span><select data-agenda-mobile-professional aria-label="Staff"' + (professionalOptions ? '' : ' disabled') + '>' +
+        professionalOptions + '</select></label>'
     }
 
     function agendaRangeCellContext(cell) {
@@ -33560,17 +33492,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.agendaGridWrap.querySelector('[data-agenda-block-toggle]')?.addEventListener('click', openAgendaBlockPopover)
       els.agendaGridWrap.querySelector('[data-agenda-mobile-month-toggle]')?.addEventListener('click', async () => {
         state.agendaMobileMonthOpen = !state.agendaMobileMonthOpen
-        if (state.agendaMobileMonthOpen) state.agendaMobileFiltersOpen = false
         if (state.agendaMobileMonthOpen) {
           await loadAgenda({ monthView: true })
         } else {
           renderAgenda()
         }
-      })
-      els.agendaGridWrap.querySelector('[data-agenda-mobile-filters]')?.addEventListener('click', () => {
-        state.agendaMobileFiltersOpen = !state.agendaMobileFiltersOpen
-        if (state.agendaMobileFiltersOpen) state.agendaMobileMonthOpen = false
-        renderAgenda()
       })
       els.agendaGridWrap.querySelector('[data-agenda-mobile-today]')?.addEventListener('click', async () => {
         state.agendaMobileMonthOpen = false
@@ -33599,11 +33525,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         rememberAgendaProfessionalFilter()
         renderAgendaProfessionalControls()
         await loadAgenda({ preferCached: true })
-      })
-
-      els.agendaGridWrap.querySelector('[data-agenda-mobile-service]')?.addEventListener('change', (event) => {
-        els.agendaService.value = event.target.value || ''
-        renderAgenda()
       })
 
       for (const cell of els.agendaGridWrap.querySelectorAll('[data-cell-date][data-cell-minute]')) {
@@ -34545,7 +34466,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const ownProfessionalId = agendaOwnProfessionalId()
       if (ownProfessionalId === '') return []
       const professionalId = ownProfessionalId === null ? els.agendaProfessional?.value || '' : ownProfessionalId
-      const serviceId = els.agendaService?.value || ''
       const moveScope = agendaDragLockPreferenceKey()
 
       return state.agendaAppointments
@@ -34560,11 +34480,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           return start >= from && start < to
         })
         .filter((appointment) => !professionalId || appointment.professionalId === professionalId)
-        .filter((appointment) =>
-          !serviceId ||
-          appointment.serviceId === serviceId ||
-          (appointment.serviceItems || []).some((item) => item.serviceId === serviceId)
-        )
         .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
     }
 
@@ -34881,9 +34796,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.appointmentStart.value = toDatetimeLocalValue(addMinutes(startOfDay(date), minute))
 
         const selectedProfessionalId = input.professionalId || els.agendaProfessional.value
-        const selectedServiceId = input.serviceId || els.agendaService.value
         els.appointmentProfessional.value = selectedProfessionalId || activeProfessionals()[0]?.id || ''
-        const compatibleServices = renderAppointmentServiceOptions(selectedServiceId)
+        const compatibleServices = renderAppointmentServiceOptions(input.serviceId)
         if (compatibleServices.length === 0) {
           els.appointmentFeedback.textContent = 'Este profesional no tiene servicios asignados.'
         } else if (input.additionalAtOccupiedTime) {
@@ -40502,7 +40416,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       renderAgendaProfessionalControls()
       await loadAgenda({ preferCached: true })
     })
-    els.agendaService.addEventListener('change', renderAgenda)
     els.agendaStep.addEventListener('change', renderAgenda)
     els.agendaToday.addEventListener('click', async () => {
       await navigateAgendaToDate(new Date())

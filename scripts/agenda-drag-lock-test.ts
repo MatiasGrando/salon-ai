@@ -258,7 +258,7 @@ if (process.env.CRM_QA_BROWSER_MODULE) {
         state.agendaViewDays = 1; state.agendaPendingMoves = new Map(); state.agendaMobileScrollMinute = null;
         state.professionals[0].services = [{ id: 's1' }];
         state.agendaAppointments[0].totalDurationMinutes = 60;
-        const els = { agendaGridWrap: document.getElementById('agenda-qa'), agendaProfessional: { value: '' }, agendaService: { value: '' }, agendaRange: {}, agendaToday: {} };
+        const els = { agendaGridWrap: document.getElementById('agenda-qa'), agendaProfessional: { value: '' }, agendaRange: {}, agendaToday: {} };
         const qa = { opens: 0, calls: [] };
         const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
         const startOfDay = day => new Date(day.getFullYear(), day.getMonth(), day.getDate());
@@ -278,7 +278,7 @@ if (process.env.CRM_QA_BROWSER_MODULE) {
         const canEditAppointments = () => state.currentUser.canEditAppointments !== false; const canCreateAppointments = () => true; const canManageScheduleBlocks = () => true;
         const canForceAppointmentOverrides = () => true; const showCrmToast = () => {}; const requestCrmConfirmation = async () => true;
         const openAppointmentDialog = () => { qa.opens++; }; const openMobileDrawer = () => {}; const openAgendaBlockPopover = () => {};
-        const renderAgendaDropPreview = () => {}; const renderAgendaMobileMonthPanel = () => ''; const renderAgendaMobileFilterPanel = () => '';
+        const renderAgendaDropPreview = () => {}; const renderAgendaMobileMonthPanel = () => ''; const renderAgendaStaffSelect = () => '';
         const startAgendaRangeSelection = () => {}; const selectAgendaCellRange = () => {}; const deleteScheduleBlock = () => {};
         const renderAgendaProfessionalControls = () => {}; const rememberAgendaProfessionalFilter = () => {}; const loadAgenda = async () => {};
         const navigateAgendaToDate = async day => { state.agendaSelectedDate = day; renderAgenda(); };
