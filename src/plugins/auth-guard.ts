@@ -96,6 +96,9 @@ function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
     || /^\/service-categories\/[^/]+$/.test(path)
     || path === '/services'
     || /^\/services\/[^/]+(?:\/status)?$/.test(path)
+    || (['GET', 'HEAD', 'POST'].includes(method) && ['/product-categories', '/products'].includes(path))
+    || (method === 'PATCH' && /^\/(?:product-categories|products)\/[^/]+$/.test(path))
+    || (method === 'POST' && path === '/product-sales')
     || path.startsWith('/cash-register')
     || path === '/crm/cash-events'
     || path === '/appointments/finance-summaries'
@@ -379,6 +382,9 @@ const internalRouteRoots = new Set([
   'crm',
   'customers',
   'health',
+  'product-categories',
+  'products',
+  'product-sales',
   'professional-hours',
   'professionals',
   'post-sale',

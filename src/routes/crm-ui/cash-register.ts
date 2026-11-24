@@ -996,7 +996,7 @@ export const cashRegisterMarkup = `
             <form class="cash-category-editor" id="cash-product-category-form" hidden><label>Nombre<input id="cash-product-category-name" maxlength="60" autocomplete="off"></label><div class="cash-dialog-grid"><label>Orden<input id="cash-product-category-sort-order" type="number" min="0" step="1" value="0"></label><label><span><input id="cash-product-category-active" type="checkbox" checked> Categor&iacute;a activa</span></label></div><p class="cash-feedback" id="cash-product-category-feedback" role="status"></p><div class="cash-dialog-actions"><button class="secondary" id="cash-product-category-cancel" type="button">Cancelar</button><button class="primary" type="submit">Guardar</button></div></form>
             <div class="cash-category-list" id="cash-product-category-list"></div></section>
           <section class="cash-product-section"><div class="cash-product-section-head"><h4>Cat&aacute;logo</h4><button class="primary" id="cash-product-new" type="button">Nuevo producto</button></div>
-            <form class="cash-category-editor" id="cash-product-form" hidden><div class="cash-dialog-grid"><label>Nombre<input id="cash-product-name" maxlength="100" autocomplete="off"></label><label>Categor&iacute;a<select id="cash-product-category"></select></label></div><div class="cash-dialog-grid"><label>Precio de venta<input id="cash-product-price" type="number" min="0" step="1" inputmode="numeric"></label><label>Costo opcional<input id="cash-product-cost" type="number" min="0" step="1" inputmode="numeric"></label></div><label>Descripci&oacute;n opcional<textarea id="cash-product-description" maxlength="300" rows="2"></textarea></label><div class="cash-dialog-grid"><label>C&oacute;digo interno opcional<input id="cash-product-sku" maxlength="60" autocomplete="off"></label><label>Orden<input id="cash-product-sort-order" type="number" min="0" step="1" value="0"></label></div><label><span><input id="cash-product-active" type="checkbox" checked> Producto activo</span></label><p class="cash-session-help">Sin controlar stock en esta primera etapa.</p><p class="cash-feedback" id="cash-product-feedback" role="status"></p><div class="cash-dialog-actions"><button class="secondary" id="cash-product-cancel" type="button">Cancelar</button><button class="primary" type="submit">Guardar producto</button></div></form>
+            <form class="cash-category-editor" id="cash-product-form" hidden><div class="cash-dialog-grid"><label>Nombre<input id="cash-product-name" maxlength="100" autocomplete="off"></label><label>Categor&iacute;a opcional<select id="cash-product-category"></select></label></div><div class="cash-dialog-grid"><label>Precio de venta<input id="cash-product-price" type="number" min="0" step="1" inputmode="numeric"></label><label>Costo opcional<input id="cash-product-cost" type="number" min="0" step="1" inputmode="numeric"></label></div><label>Descripci&oacute;n opcional<textarea id="cash-product-description" maxlength="300" rows="2"></textarea></label><div class="cash-dialog-grid"><label>C&oacute;digo interno opcional<input id="cash-product-sku" maxlength="60" autocomplete="off"></label><label>Orden<input id="cash-product-sort-order" type="number" min="0" step="1" value="0"></label></div><label><span><input id="cash-product-active" type="checkbox" checked> Producto activo</span></label><p class="cash-session-help">Sin controlar stock en esta primera etapa.</p><p class="cash-feedback" id="cash-product-feedback" role="status"></p><div class="cash-dialog-actions"><button class="secondary" id="cash-product-cancel" type="button">Cancelar</button><button class="primary" type="submit">Guardar producto</button></div></form>
             <div class="cash-product-table" id="cash-product-list"></div></section>
         </div><div class="cash-dialog-actions"><button class="secondary" id="cash-product-catalog-close" type="button">Cerrar</button></div>
       </section>
@@ -1163,8 +1163,10 @@ export const cashRegisterScript = `
     function cashProductCategoryName(categoryId) { return state.cashRegister.productCategories.find((category) => category.id === categoryId)?.name || 'Sin categor&iacute;a' }
 
     function renderCashProductOptions() {
+      const selectedCategoryId = cashUi.productCategory.value
       const categoryOptions = state.cashRegister.productCategories.filter((category) => category.isActive !== false).map((category) => '<option value="' + escapeHtml(category.id) + '">' + escapeHtml(category.name) + '</option>').join('')
-      cashUi.productCategory.innerHTML = categoryOptions || '<option value="">Sin categor&iacute;as</option>'
+      cashUi.productCategory.innerHTML = '<option value="">Sin categor&iacute;a</option>' + categoryOptions
+      cashUi.productCategory.value = state.cashRegister.productCategories.some((category) => category.id === selectedCategoryId && category.isActive !== false) ? selectedCategoryId : ''
       const productOptions = activeCashProducts().map((product) => '<option value="' + escapeHtml(product.id) + '">' + escapeHtml(product.name) + ' · ' + escapeHtml(cashMoney(product.salePrice)) + '</option>').join('')
       cashUi.productSaleProduct.innerHTML = productOptions || '<option value="">No hay productos activos</option>'
       cashUi.appointmentProductSelect.innerHTML = productOptions || '<option value="">No hay productos activos</option>'
@@ -1229,7 +1231,7 @@ export const cashRegisterScript = `
       const product = state.cashRegister.products.find((item) => item.id === productId)
       state.cashRegister.editingProductId = product?.id || null
       cashUi.productName.value = product?.name || ''
-      cashUi.productCategory.value = product?.categoryId || state.cashRegister.productCategories.find((item) => item.isActive !== false)?.id || ''
+      cashUi.productCategory.value = product?.categoryId || ''
       cashUi.productPrice.value = product ? String(product.salePrice) : ''
       cashUi.productDescription.value = product?.description || ''
       cashUi.productCost.value = product?.cost === null || product?.cost === undefined ? '' : String(product.cost)
@@ -1245,10 +1247,10 @@ export const cashRegisterScript = `
       event.preventDefault()
       const productId = state.cashRegister.editingProductId
       const name = cashUi.productName.value.trim(); const salePrice = Number(cashUi.productPrice.value); const sortOrder = Number(cashUi.productSortOrder.value); const costText = cashUi.productCost.value.trim(); const cost = costText ? Number(costText) : null
-      if (!name || !cashUi.productCategory.value || !Number.isSafeInteger(salePrice) || salePrice < 0 || !Number.isSafeInteger(sortOrder) || sortOrder < 0 || (cost !== null && (!Number.isSafeInteger(cost) || cost < 0))) { cashUi.productFeedback.textContent = 'Completá nombre, categoría y montos enteros válidos.'; cashUi.productFeedback.className = 'cash-feedback error'; return }
+      if (!name || !Number.isSafeInteger(salePrice) || salePrice < 0 || !Number.isSafeInteger(sortOrder) || sortOrder < 0 || (cost !== null && (!Number.isSafeInteger(cost) || cost < 0))) { cashUi.productFeedback.textContent = 'Completá nombre y montos enteros válidos.'; cashUi.productFeedback.className = 'cash-feedback error'; return }
       try {
         const path = productId ? '/products/' + encodeURIComponent(productId) : '/products'
-        await getJson(path, { method: productId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, categoryId: cashUi.productCategory.value, description: cashUi.productDescription.value.trim() || null, salePrice, cost, sortOrder, sku: cashUi.productSku.value.trim() || null, isActive: cashUi.productActive.checked, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
+        await getJson(path, { method: productId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, categoryId: cashUi.productCategory.value || null, description: cashUi.productDescription.value.trim() || null, salePrice, cost, sortOrder, sku: cashUi.productSku.value.trim() || null, isActive: cashUi.productActive.checked, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
         cashUi.productForm.hidden = true; await loadCashProducts(); showCrmToast('Producto guardado.', 'success')
       } catch (error) { cashUi.productFeedback.textContent = error.message; cashUi.productFeedback.className = 'cash-feedback error' }
     }
