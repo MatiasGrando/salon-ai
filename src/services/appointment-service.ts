@@ -44,6 +44,7 @@ import { bookingAvailabilityUnavailableReason } from './booking-availability-rea
 import { reserveBenefit } from './customer-benefits.js'
 
 const availabilitySlotInterval = 30
+const AGENDA_CREATE_TRANSACTION_OPTIONS = { timeout: 30_000 }
 
 function completedAppointmentImmutable() {
   return { ok: false as const, statusCode: 409, code: 'COMPLETED_APPOINTMENT_IMMUTABLE' as const, message: 'Para corregir un turno realizado, usá la corrección administrativa de servicio' }
@@ -291,7 +292,7 @@ export class AppointmentService {
           actorUserId: authorizationUser.id, requestFingerprint: options.mutationRequest!.requestFingerprint, result: created.appointment
         })
         return created
-      })
+      }, AGENDA_CREATE_TRANSACTION_OPTIONS)
       // Existing conversation effects run only after the outer financial transaction commits.
       for (const effect of afterCommit) await effect()
       return result
@@ -551,7 +552,7 @@ export class AppointmentService {
     }
     const appointment = options.transaction
       ? await persistAppointment(options.transaction)
-      : await prisma.$transaction(persistAppointment)
+      : await prisma.$transaction(persistAppointment, authorizationUser ? AGENDA_CREATE_TRANSACTION_OPTIONS : undefined)
 
     if (appointment === 'AUTHORIZATION_CONFLICT') return appointmentConflict()
     if (appointment === 'PROFESSIONAL_INACTIVE') {

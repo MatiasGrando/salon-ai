@@ -11,15 +11,21 @@ const svc = { id: 's', businessId: 'b', duration: 30, price: 30000, customerDura
 let appointments: any[] = [], receipts = new Map<string, any>(), payments = 0, effects = 0, active = false, failReceipt = false, authorized = true
 try {
   patch(db.professional, 'findFirst', async () => professional)
+  patch(db.professional, 'findUnique', async () => ({ availabilityMode: 'RECURRING', business: { timezone: 'America/Argentina/Buenos_Aires' } }))
   patch(db.professional, 'findMany', async () => [{ id: 'p' }])
   patch(db.service, 'findFirst', async () => svc)
   patch(db.service, 'findMany', async () => [svc])
   patch(db.customer, 'findFirst', async () => ({ id: 'c', businessId: 'b', phone: '5491100000000' }))
   patch(db.professionalService, 'count', async () => 1)
+  patch(db.business, 'findUniqueOrThrow', async () => ({ timezone: 'America/Argentina/Buenos_Aires' }))
+  patch(db.customerBenefit, 'findMany', async () => [])
   patch(db.businessHours, 'findMany', async () => [{ startTime: '00:00', endTime: '23:59' }])
   patch(db.professionalHours, 'findMany', async () => [{ startTime: '00:00', endTime: '23:59' }])
   patch(db.scheduleBlock, 'findFirst', async () => null)
-  patch(db.appointment, 'findFirst', async () => authorized ? appointments[0] ?? null : null)
+  patch(db.appointment, 'findFirst', async ({ where }: { where: { id: string } }) => {
+    const appointment = authorized ? appointments.find((item) => item.id === where.id) : undefined
+    return appointment ? { serviceItems: [], service: svc, ...appointment } : null
+  })
   patch(db.appointment, 'findMany', async () => [])
   patch(db.appointment, 'create', async ({ data }: any) => { assert.equal(active, true); const appointment = { id: 'turn-' + (appointments.length + 1), ...data }; appointments.push(appointment); return appointment })
   patch(db, '$queryRaw', async (sql: any) => {
@@ -31,7 +37,13 @@ try {
   })
   patch(db, '$executeRaw', async (sql: any) => { if (sql.text.includes('INSERT INTO "AppointmentMutationRequest"')) { if (failReceipt) throw new Error('receipt failure'); const [businessId, requestId, operation, appointmentId, actorUserId, requestFingerprint, result] = sql.values; receipts.set(requestId, { businessId, requestId, operation, appointmentId, actorUserId, requestFingerprint, result: JSON.parse(result) }) } return 1 })
   patch(db, '$queryRawUnsafe', async () => { assert.equal(active, false, 'conversation effects must wait for outer commit'); effects++; return [] })
-  patch(db, '$transaction', async (work: any) => { assert.equal(active, false, 'no independent nested transaction'); const before = structuredClone({ appointments, receipts, payments }); active = true; try { return await work(db) } catch (error) { ({ appointments, receipts, payments } = before); throw error } finally { active = false } })
+  patch(db, '$transaction', async (work: any, transactionOptions?: { timeout: number }) => {
+    assert.equal(transactionOptions?.timeout, 30_000, 'Agenda creation must allow 30 seconds for the transaction')
+    assert.equal(active, false, 'no independent nested transaction')
+    const before = structuredClone({ appointments, receipts, payments })
+    active = true
+    try { return await work(db) } catch (error) { ({ appointments, receipts, payments } = before); throw error } finally { active = false }
+  })
   const service = new AppointmentService()
   const input = { customerId: 'c', professionalId: 'p', serviceId: 's', startAt: '2026-11-24T12:00:00Z', force: true }
   const options: any = { skipDefaultMarketingPreference: true, mutationRequest: { requestId: 'create-with-payment', requestFingerprint: 'a'.repeat(64) }, afterCreateInTransaction: async ({ transaction }: any) => { assert.equal(transaction, db); assert.equal(active, true); payments++ } }
@@ -53,5 +65,8 @@ try {
   assert.equal(appointments.length, 1)
   assert.equal(payments, 1)
   assert.equal(effects, 1, 'rolled back creation must not emit post-commit effects')
+  const withoutRequestId = await service.create(input, actor, { skipDefaultMarketingPreference: true })
+  assert.equal(withoutRequestId.ok, true)
+  assert.equal(appointments.length, 2)
   console.log('appointment create request: override replay, same transaction, actor/payload/current scope, rollback, effects once OK')
 } finally { for (const restore of restores.reverse()) restore(); await prisma.$disconnect() }
