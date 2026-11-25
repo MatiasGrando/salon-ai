@@ -16,7 +16,7 @@ for (const name of enumNames) {
   const values = body.split('\n').flatMap(line => line.match(/@map\("([^"]+)"\)/)?.[1] ?? line.trim().match(/^([A-Z_]+)(?:\s|$)/)?.[1] ?? [])
   await db.exec('CREATE TYPE "' + name + '" AS ENUM (' + values.map(value => "'" + value + "'").join(',') + ')')
 }
-const models = ['Business', 'User', 'Professional', 'Service', 'ProfessionalService', 'Appointment', 'AppointmentServiceItem', 'AppointmentAccount', 'AppointmentAccountLink', 'AppointmentTotalAdjustment', 'BookingVisit', 'BotOperation', 'BookingDeposit', 'AppointmentServiceCorrection', 'ProductSale', 'CashRegisterDay', 'CashSession', 'BusinessPaymentMethod', 'CashEntry', 'ProfessionalAccountEntry']
+const models = ['Business', 'User', 'Professional', 'Service', 'ProfessionalService', 'Appointment', 'AppointmentServiceItem', 'AppointmentAccount', 'AppointmentAccountLink', 'AppointmentTotalAdjustment', 'BookingVisit', 'BotOperation', 'BookingDeposit', 'AppointmentServiceCorrection', 'ProductSale', 'CashRegisterDay', 'CashSession', 'BusinessPaymentMethod', 'CashEntry', 'ProfessionalAccountEntry', 'BenefitUse']
 for (const name of models) {
   const body = schema.match(new RegExp('model ' + name + ' \\{([\\s\\S]*?)\\n\\}'))![1]!
   const columns = body.split('\n').flatMap(line => {
@@ -45,16 +45,20 @@ let failStatement: ((sql: string) => boolean) | undefined
 let mutationStatements = 0
 function adapter(pg: Pick<PGlite, 'query'>): Prisma.TransactionClient {
   let affectedRows = 0
-  const query = async (sql: Prisma.Sql) => {
-    if (sql.text.includes('pg_advisory_xact_lock')) return [{ locked: 1 }]
+  const query = async (sql: Prisma.Sql, readRows: boolean) => {
     if (/^\s*(?:INSERT|UPDATE|DELETE)\b/.test(sql.text)) mutationStatements += 1
     if (failStatement?.(sql.text)) throw new Error('injected payment rollback')
     const result = await pg.query(sql.text, sql.values.map(value => value instanceof Date ? value.toISOString() : value))
+    if (readRows) {
+      // Prisma's PostgreSQL adapter cannot deserialize a result column of type void (OID 2278).
+      assert.ok(result.fields.every(field => field.dataTypeID !== 2278), '$queryRaw must select only types Prisma can deserialize')
+    }
     affectedRows = result.affectedRows ?? result.rows.length
     return result.rows
   }
   return {
-    $queryRaw: query, $executeRaw: async (sql: Prisma.Sql) => { await query(sql); return affectedRows },
+    $queryRaw: (sql: Prisma.Sql) => query(sql, true),
+    $executeRaw: async (sql: Prisma.Sql) => { await query(sql, false); return affectedRows },
     appointmentServiceItem: {
       deleteMany: async ({ where }: { where: { appointmentId: string } }) => pg.query('DELETE FROM "AppointmentServiceItem" WHERE "appointmentId"=$1', [where.appointmentId]),
       create: async ({ data }: { data: { appointmentId: string; serviceId: string; sortOrder: number; durationMinutes: number; price: number } }) => pg.query('INSERT INTO "AppointmentServiceItem" ("appointmentId","serviceId","sortOrder","durationMinutes",price) VALUES ($1,$2,$3,$4,$5)', [data.appointmentId, data.serviceId, data.sortOrder, data.durationMinutes, data.price])

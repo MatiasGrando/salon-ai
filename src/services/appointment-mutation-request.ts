@@ -50,8 +50,10 @@ export function assertAppointmentMutationReplay(record: AppointmentMutationReque
 
 export async function lockAppointmentMutationRequest(tx: Prisma.TransactionClient, businessId: string, requestId: string): Promise<void> {
   // The same key lock is always first, before Agenda/Caja resource locks.
-  await tx.$queryRaw(Prisma.sql`
-    SELECT pg_advisory_xact_lock(hashtextextended(${'appointment-mutation:' + businessId + ':' + requestId}, 0))
+  // Select an integer so Prisma does not have to decode PostgreSQL's void result.
+  await tx.$queryRaw<Array<{ locked: number }>>(Prisma.sql`
+    SELECT 1 AS "locked"
+    FROM pg_advisory_xact_lock(hashtextextended(${'appointment-mutation:' + businessId + ':' + requestId}, 0))
   `)
 }
 
