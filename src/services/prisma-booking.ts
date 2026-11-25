@@ -1,12 +1,13 @@
 import { Prisma } from '../generated/prisma/client.js'
+import { insidePublishedProfessionalHours } from './weekly-availability.js'
 
 export type BookingRepositoryClient = Prisma.TransactionClient
 
-export function createAppointmentRecord(
+export function createAppointmentRecord<T extends Prisma.AppointmentCreateArgs>(
   tx: BookingRepositoryClient,
-  args: Prisma.AppointmentCreateArgs
+  args: Prisma.SelectSubset<T, Prisma.AppointmentCreateArgs>
 ) {
-  return tx.appointment.create(args)
+  return tx.appointment.create<T>(args)
 }
 
 export function updateAppointmentRecord(
@@ -47,6 +48,8 @@ export async function isInsideProfessionalHours(tx: BookingRepositoryClient, inp
   endAt: Date
   timezone?: string
 }) {
+  const published = await insidePublishedProfessionalHours(tx, input)
+  if (published !== null) return published
   const interval = localInterval(input.startAt, input.endAt, input.timezone)
   if (!interval) return false
   const hours = await tx.professionalHours.findMany({

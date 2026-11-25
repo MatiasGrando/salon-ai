@@ -8,7 +8,9 @@ import { AppointmentService } from '../services/appointment-service.js'
 import { BusinessService } from '../services/business-service.js'
 import { bookingConfirmationBusinessDetails, sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
 import { inferDefaultAreaCodeFromPhone, normalizeCustomerPhone, phoneSearchVariants } from '../services/phone-normalization-service.js'
-import { findOrCreateCustomerByPhone, normalizeCustomerEmail } from '../services/customer-identity-service.js'
+import { findOrCreateCustomerByPhone, findExistingCustomersByPhone, normalizeCustomerEmail } from '../services/customer-identity-service.js'
+import { CustomerBenefitsService, reserveBenefit } from '../services/customer-benefits.js'
+import { BookingProgramError } from '../services/booking-program-domain.js'
 import { customerDurationRange, formatCustomerDuration, reservationDurationLimits } from '../services/service-duration.js'
 import { calculateBookingV2Deposit } from '../services/booking-v2-deposit.js'
 import { bookingDepositService } from '../services/booking-deposit-service.js'
@@ -234,6 +236,28 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     }
   })
 
+  app.post('/public/booking/:slug/membership-quote', async (request, reply) => {
+    const { slug } = request.params as { slug: string }
+    const [business, auth] = await Promise.all([findAvailablePublicBookingBusiness(request, slug), getWeexAuthFromRequest(request)])
+    if (!business) return reply.status(404).send({ message: 'No encontre esta landing.' })
+    if (!auth?.account.phone || !auth.account.phoneVerifiedAt) return []
+    const body = request.body as { date: string; serviceIds: string[] }
+    if (!body || !Array.isArray(body.serviceIds) || !body.serviceIds.length || body.serviceIds.length > 20 || body.serviceIds.some(id => typeof id !== 'string' || !id)) return reply.status(400).send({ message: 'Selecciona los servicios.' })
+    const customers = await findExistingCustomersByPhone({ businessId: business.id, phone: '+' + auth.account.phone })
+    if (customers.length !== 1) return []
+    const benefits = new CustomerBenefitsService(prisma)
+    try {
+      const quotes = await Promise.all(body.serviceIds.map(async serviceId => {
+        const quote = await benefits.quote(business.id, customers[0]!.id, body.date, [serviceId])
+        return quote ? { serviceId, name: quote.name, coveredAmount: quote.coveredAmount } : null
+      }))
+      return quotes.filter(quote => quote !== null)
+    } catch (error) {
+      if (error instanceof BookingProgramError) return reply.status(error.statusCode).send({ code: error.code, message: error.message })
+      throw error
+    }
+  })
+
   app.post('/public/booking/:slug/itineraries', async (request, reply) => {
     const params = request.params as { slug: string }
     const body = request.body as { serviceIds?: string[]; date?: string; professionalId?: string }
@@ -343,9 +367,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     if (service.depositMode !== 'NONE' && !depositCalculation) {
       return reply.status(409).send({ message: 'La seña de este servicio necesita una configuracion valida' })
     }
-    if (depositCalculation && !webTransferEnabled(business)) {
-      return reply.status(409).send({ message: 'Este comercio todavia no habilito transferencias para recibir la seña' })
-    }
+
 
     const [professionals, customer] = await Promise.all([
       professionalsForService(business.id, serviceId, professionalId),
@@ -388,7 +410,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         amount: depositCalculation.amount,
         expiresAt: depositExpiresAt
       } : null
-      }, { afterCreateInTransaction: async ({ transaction, appointment }) => {
+      }, { useCustomerBenefits: Boolean(weexAuth?.account.phone && weexAuth.account.phoneVerifiedAt), canReceiveDeposit: webTransferEnabled(business), afterCreateInTransaction: async ({ transaction, appointment }) => {
         if (weexAuth) await persistWebBookingOwner(transaction, {
           businessId: business.id, appointmentId: appointment.id, accountId: weexAuth.account.id
         })
@@ -545,7 +567,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: 'La reserva coordinada necesita al menos dos servicios' })
     }
 
-    const resolvedSelections = []
+    const resolvedSelections: Array<{ service: (typeof selection.services)[number]; estimate: Extract<ReturnType<typeof resolvePublicEstimateSelection>, { ok: true }>; deposit: ReturnType<typeof calculateBookingV2Deposit> }> = []
     for (const service of selection.services) {
       const submitted = rawSelections.find((item) => item.serviceId === service.id)
       if (service.validationEnabled && submitted?.validationAccepted !== true) {
@@ -564,10 +586,8 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       }
       resolvedSelections.push({ service, estimate, deposit })
     }
-    const totalDeposit = resolvedSelections.reduce((total, item) => total + (item.deposit?.amount ?? 0), 0)
-    if (totalDeposit > 0 && !webTransferEnabled(business)) {
-      return reply.status(409).send({ message: 'Este comercio todavia no habilito transferencias para recibir la seña' })
-    }
+    let totalDeposit = resolvedSelections.reduce((total, item) => total + (item.deposit?.amount ?? 0), 0)
+
 
     const availability = await searchPublicCoordinatedAvailability({
       business,
@@ -597,6 +617,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
 
     const coordinationGroupId = randomUUID()
     const appointmentIds: string[] = []
+    const coveredServiceIds = new Set<string>()
     try {
       for (const segment of itinerary.segments) {
         const resolved = resolvedSelections.find((item) => item.service.id === segment.serviceId)
@@ -620,6 +641,12 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         if (!created.ok) throw new Error(created.message)
         appointmentIds.push(created.appointment.id)
       }
+      if (weexAuth?.account.phone && weexAuth.account.phoneVerifiedAt) await prisma.$transaction(async transaction => {
+        for (const [index, appointmentId] of appointmentIds.entries()) {
+          const benefit = await reserveBenefit(transaction, { businessId: business.id, customerId: customer.id, appointmentId, optional: true })
+          if (benefit && benefit.coveredAmount === benefit.originalPrice) coveredServiceIds.add(itinerary.segments[index]!.serviceId)
+        }
+      })
     } catch (error) {
       await Promise.allSettled(appointmentIds.map((appointmentId) => appointmentService.cancel(appointmentId)))
       return reply.status(409).send({
@@ -629,6 +656,11 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       })
     }
 
+    totalDeposit = resolvedSelections.reduce((sum,item) => sum + (coveredServiceIds.has(item.service.id) ? 0 : item.deposit?.amount ?? 0),0)
+    if (totalDeposit > 0 && !webTransferEnabled(business)) {
+      await Promise.allSettled(appointmentIds.map(id => appointmentService.cancel(id)))
+      return reply.status(409).send({message:'Este comercio todavia no habilito transferencias para recibir la seña'})
+    }
     let deposit = null
     let guestAppointments: GuestAppointmentSummary[] | null = null
     const guestAccess = !weexAuth ? prepareGuestBookingAccess() : null
@@ -649,12 +681,12 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     try {
       if (totalDeposit > 0) {
         const holdMinutes = Math.min(...resolvedSelections
-          .filter((item) => item.deposit)
+          .filter((item) => item.deposit && !coveredServiceIds.has(item.service.id))
           .map((item) => item.service.depositHoldMinutes))
         deposit = await prisma.$transaction(async transaction => {
           const created = await transaction.bookingDeposit.create({ data: {
             businessId: business.id,
-            appointmentId: appointmentIds[0]!,
+            appointmentId: appointmentIds[itinerary.segments.findIndex(segment => !coveredServiceIds.has(segment.serviceId) && resolvedSelections.find(item => item.service.id === segment.serviceId)?.deposit)]!,
             conversationId: null,
             source: 'WEB',
             mode: 'FIXED',
@@ -694,7 +726,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     }
     const appointments = guestAppointments ?? await prisma.appointment.findMany({
       where: { id: { in: appointmentIds } },
-      include: { service: true, professional: true, customer: true },
+      include: { service: true, professional: true, customer: true, benefitUse: { select: { coveredAmount: true, benefit: { select: { name: true, endsOn: true } } } } },
       orderBy: { startAt: 'asc' }
     })
     if (guestAccess) setGuestBookingCookie(request, reply, { ...guestAccess, businessId: business.id, slug: params.slug })

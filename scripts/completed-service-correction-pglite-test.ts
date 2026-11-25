@@ -16,7 +16,7 @@ for (const name of enumNames) {
   const values = body.split('\n').flatMap(line => line.match(/@map\("([^"]+)"\)/)?.[1] ?? line.trim().match(/^([A-Z_]+)(?:\s|$)/)?.[1] ?? [])
   await db.exec('CREATE TYPE "' + name + '" AS ENUM (' + values.map(value => "'" + value + "'").join(',') + ')')
 }
-const models = ['Business', 'User', 'Professional', 'Service', 'ProfessionalService', 'Appointment', 'AppointmentServiceItem', 'AppointmentAccount', 'AppointmentAccountLink', 'AppointmentTotalAdjustment', 'ProductSale', 'CashRegisterDay', 'CashSession', 'BusinessPaymentMethod', 'CashEntry', 'ProfessionalAccountEntry']
+const models = ['Business', 'User', 'Professional', 'Service', 'ProfessionalService', 'Appointment', 'AppointmentServiceItem', 'AppointmentAccount', 'AppointmentAccountLink', 'AppointmentTotalAdjustment', 'ProductSale', 'CashRegisterDay', 'CashSession', 'BusinessPaymentMethod', 'CashEntry', 'ProfessionalAccountEntry', 'BenefitUse']
 for (const name of models) {
   const body = schema.match(new RegExp('model ' + name + ' \\{([\\s\\S]*?)\\n\\}'))![1]!
   const columns = body.split('\n').flatMap(line => {

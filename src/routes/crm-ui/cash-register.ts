@@ -3434,8 +3434,24 @@ export const cashRegisterScript = `
       }
     }
 
+    let createMembershipKey = '', createMembershipQuote = null, createMembershipPending = false, createMembershipError = ''
+    function invalidateCreateMembershipQuote() { createMembershipKey = ''; createMembershipQuote = null; createMembershipError = '' }
+    function refreshCreateMembershipQuote() {
+      const customerId = els.appointmentCustomer.value, serviceId = els.appointmentService.value, date = els.appointmentStart.value.slice(0,10)
+      const key = !state.editingAppointmentId && customerId && serviceId && date && canUseCashPermission('canRecordAppointmentPayments') ? [state.businessId,customerId,serviceId,date].join('|') : ''
+      if (key === createMembershipKey) return
+      createMembershipKey = key; createMembershipQuote = null; createMembershipError = ''; createMembershipPending = Boolean(key)
+      if (!key) return
+      void getJson('/customer-benefits/quote', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({businessId:state.businessId,customerId,date,serviceIds:[serviceId]})}).then(quote => {
+        if (key !== createMembershipKey) return
+        createMembershipQuote = quote; createMembershipPending = false; syncCreateAppointmentPayment()
+      }).catch(error => { if (key !== createMembershipKey) return; createMembershipPending = false; createMembershipError = error.message; syncCreateAppointmentPayment() })
+    }
+
     function calculateCreateAppointmentTotals() {
+      refreshCreateMembershipQuote()
       const price = selectedCreateAppointmentPrice()
+      const membershipAmount = Math.min(price.total || 0, createMembershipQuote?.coveredAmount || 0)
       const rawDiscount = Number(cashUi.createDiscountValue.value)
       let discountAmount = 0
       if (state.cashRegister.createFinance.discount && price.total !== null && Number.isFinite(rawDiscount) && rawDiscount >= 0) {
@@ -3443,7 +3459,7 @@ export const cashRegisterScript = `
           ? Math.round(price.total * rawDiscount / 100)
           : rawDiscount
       }
-      const final = price.total === null ? null : Math.max(0, price.total - discountAmount)
+      const final = price.total === null ? null : Math.max(0, price.total - membershipAmount - discountAmount)
       const rawDeposit = Number(cashUi.createDepositAmount.value)
       const depositAmount = state.cashRegister.createFinance.deposit && Number.isSafeInteger(rawDeposit) && rawDeposit > 0 ? rawDeposit : 0
       const payableAfterDeposit = final === null ? 0 : Math.max(0, final - depositAmount)
@@ -3451,6 +3467,7 @@ export const cashRegisterScript = `
       if (state.cashRegister.createFinance.collectTotal && final !== null) collectedAmount = payableAfterDeposit
       return {
         price,
+        membershipAmount,
         discountAmount,
         final,
         depositAmount,
@@ -3503,7 +3520,7 @@ export const cashRegisterScript = `
       cashUi.createSummaryTotal.textContent = totals.final === null ? 'A definir' : cashMoney(totals.final)
       cashUi.createSummaryPaid.textContent = cashMoney(totals.paid)
       cashUi.createSummaryDue.textContent = totals.due === null ? 'A definir' : cashMoney(totals.due)
-      cashUi.createPaymentStatus.textContent = actions.collectTotal
+      cashUi.createPaymentStatus.textContent = totals.membershipAmount > 0 ? 'Cubierto por membresía: ' + createMembershipQuote.name : actions.collectTotal
         ? 'Pago total'
         : actions.deposit
           ? (totals.depositAmount > 0 ? 'Seña ' + cashMoney(totals.depositAmount) : 'Seña pendiente')
@@ -3514,7 +3531,7 @@ export const cashRegisterScript = `
       cashUi.createCashRequired.hidden = !hasPaymentIntent || hasSession
       cashUi.createOpenCash.hidden = !canUseCashPermission('canManageCashSessions')
       cashUi.createCashRequired.querySelector('p').textContent = canUseCashPermission('canManageCashSessions') ? 'Para cobrar necesitás una sesión de Caja activa.' : 'Pedile a un responsable autorizado que abra la Caja.'
-      cashUi.createPaymentFeedback.textContent = ''
+      cashUi.createPaymentFeedback.textContent = createMembershipPending ? 'Verificando cobertura de membresía...' : createMembershipError ? 'No pudimos verificar la membresía. Volvé a seleccionar el cliente para reintentar.' : totals.membershipAmount > 0 ? 'Servicio incluido y pagado. Se reservará un uso de ' + createMembershipQuote.name + '.' : ''
     }
 
     async function loadCreateAppointmentCashState() {
@@ -3532,6 +3549,7 @@ export const cashRegisterScript = `
     }
 
     function prepareCreateAppointmentPayment(appointment) {
+      createMembershipKey = ''; createMembershipQuote = null; createMembershipPending = false; createMembershipError = ''
       const visible = !appointment && (canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts'))
       cashUi.createPayment.hidden = !visible
       cashUi.createPayment.open = false
@@ -3560,6 +3578,9 @@ export const cashRegisterScript = `
       const enteredEstimatedTotal = cashUi.createEstimatedTotal.value.trim()
       const hasFinanceIntent = actions.collectTotal || actions.deposit || actions.discount || Boolean(enteredEstimatedTotal)
       if (!hasFinanceIntent) return null
+      refreshCreateMembershipQuote()
+      if (createMembershipPending || createMembershipError) throw new Error('Esperá la verificación de la membresía antes de registrar un cobro.')
+      if (createMembershipQuote && (actions.discount || actions.deposit)) throw new Error('Este servicio ya está pagado por la membresía. Desactivá la seña y el descuento adicional.')
       if ((actions.collectTotal || actions.deposit) && state.cashRegister.paymentMethodsBusinessId !== state.businessId) throw new Error('Esperá a que se carguen los medios de pago. Volvé a abrir Pago para reintentar.')
       const totals = calculateCreateAppointmentTotals()
       if (totals.price.total === null) throw new Error('Ingresá el total acordado para este servicio estimativo.')
@@ -3609,6 +3630,7 @@ export const cashRegisterScript = `
       const actions = state.cashRegister.editFinance
       const canRecord = canUseCashPermission('canRecordAppointmentPayments')
       const canDiscount = canUseCashPermission('canApplyDiscounts')
+      const hasMembership = Boolean(finance.membership || editingAgendaAppointment()?.benefitUse)
       const activeSession = Boolean(state.cashRegister.current?.session?.id)
       const hasPaymentIntent = actions.collectTotal || actions.deposit
       const appointment = editingAgendaAppointment()
@@ -3619,10 +3641,10 @@ export const cashRegisterScript = `
         new Date(appointment.startAt).getTime() <= Date.now()
       )
 
-      cashUi.totalToggle.hidden = !canRecord
+      cashUi.totalToggle.hidden = !canRecord || hasMembership
       cashUi.editCollectTotal.hidden = !canRecord || finance.balanceAmount <= 0
       cashUi.editDeposit.hidden = !canRecord || finance.balanceAmount <= 0
-      cashUi.editDiscountToggle.hidden = !canDiscount
+      cashUi.editDiscountToggle.hidden = !canDiscount || hasMembership
       setCreateFinanceAction(cashUi.editCollectTotal, actions.collectTotal)
       setCreateFinanceAction(cashUi.editDeposit, actions.deposit)
       setCreateFinanceAction(cashUi.editDiscountToggle, actions.discount)
@@ -3654,7 +3676,7 @@ export const cashRegisterScript = `
     }
 
     function canCorrectCompletedService(appointment) {
-      return Boolean(appointment && appointment.status === 'COMPLETED' &&
+      return Boolean(appointment && !appointment.benefitUse && appointment.status === 'COMPLETED' &&
         (['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role) ||
           (state.currentUser?.role === 'BUSINESS_ADMIN' && state.currentUser.businessId === state.businessId)) &&
         (!appointment.businessId || appointment.businessId === state.businessId) && appointmentServiceIds(appointment).length === 1)
@@ -3789,7 +3811,8 @@ export const cashRegisterScript = `
 
     function renderAppointmentFinanceSummary(finance) {
       state.cashRegister.appointmentFinance = finance
-      cashUi.financeBalance.textContent = finance.balanceAmount === null ? 'A definir' : finance.balanceAmount > 0 ? 'Saldo ' + cashMoney(finance.balanceAmount) : 'Pagado'
+      const membership = finance.membership || editingAgendaAppointment()?.benefitUse?.benefit
+      cashUi.financeBalance.textContent = finance.balanceAmount === null ? 'A definir' : finance.balanceAmount > 0 ? 'Saldo ' + cashMoney(finance.balanceAmount) : membership ? 'Cubierto por membresía: ' + membership.name : 'Pagado'
       cashUi.financeServiceSubtotal.textContent = cashMoney(finance.serviceSubtotal ?? finance.agreedAmount)
       cashUi.financeProductSubtotal.textContent = cashMoney(finance.productSubtotal)
       cashUi.financeDiscount.textContent = cashMoney(finance.discountAmount)
@@ -3808,10 +3831,11 @@ export const cashRegisterScript = `
       cashUi.discountValue.value = finance.discountAmount
       syncAppointmentDiscountField()
       cashUi.totalForm.hidden = !state.cashRegister.editFinance.adjust || !canUseCashPermission('canRecordAppointmentPayments')
+      if (membership) { cashUi.totalForm.hidden = true; state.cashRegister.editFinance.adjust = false; state.cashRegister.editFinance.discount = false }
       const mobileBalance = document.getElementById('appointment-mobile-balance')
       if (mobileBalance) mobileBalance.textContent = finance.balanceAmount === null ? 'A definir' : cashMoney(finance.balanceAmount)
       const financialState = document.getElementById('appointment-financial-state')
-      if (financialState) financialState.textContent = finance.balanceAmount === null ? 'A definir' : finance.balanceAmount === 0 ? 'Pagado' : finance.paidAmount > 0 ? 'Pago parcial' : 'Sin pagar'
+      if (financialState) financialState.textContent = finance.balanceAmount === null ? 'A definir' : finance.balanceAmount === 0 ? (membership ? 'Cubierto por membresía' : 'Pagado') : finance.paidAmount > 0 ? 'Pago parcial' : 'Sin pagar'
       const mobileCharge = document.getElementById('appointment-mobile-charge')
       if (mobileCharge) mobileCharge.hidden = !canUseCashPermission('canRecordAppointmentPayments') || finance.balanceAmount === null
       syncEditAppointmentFinanceActions()
@@ -4581,6 +4605,7 @@ export const cashRegisterScript = `
     els.appointmentService.addEventListener('change', () => {
       syncCreateAppointmentPayment()
     })
+    els.appointmentStart.addEventListener('change', syncCreateAppointmentPayment)
     els.appointmentProfessional.addEventListener('change', () => {
       syncCreateAppointmentPayment()
     })

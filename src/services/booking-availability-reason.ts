@@ -1,4 +1,5 @@
 export type BookingAvailabilityUnavailableCode =
+  | 'HOURS_NOT_PUBLISHED'
   | 'BUSINESS_CLOSED'
   | 'PROFESSIONAL_NOT_WORKING'
   | 'NO_SLOTS'
@@ -12,6 +13,7 @@ export function bookingAvailabilityUnavailableReason(
   code: BookingAvailabilityUnavailableCode,
   professionalName?: string | null
 ): BookingAvailabilityUnavailableReason {
+  if (code === 'HOURS_NOT_PUBLISHED') return { code, message: 'Horarios todavia no habilitados para esa semana.' }
   if (code === 'BUSINESS_CLOSED') {
     return {
       code,
@@ -40,6 +42,7 @@ export function aggregateBookingAvailabilityUnavailableReason(
     (reason): reason is BookingAvailabilityUnavailableReason => Boolean(reason)
   )
   if (!availableReasons.length) return null
+  if (availableReasons.every(reason => reason.code === 'HOURS_NOT_PUBLISHED')) return bookingAvailabilityUnavailableReason('HOURS_NOT_PUBLISHED')
   if (availableReasons.every((reason) => reason.code === 'BUSINESS_CLOSED')) {
     return bookingAvailabilityUnavailableReason('BUSINESS_CLOSED')
   }

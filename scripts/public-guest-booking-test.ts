@@ -546,6 +546,7 @@ try {
           marketingTouches++; assert.deepEqual(update, {}); return existingPreference
         } },
         professional: { findFirst: async () => ({ id: 'pro-a', businessId: business.id, isActive: true }),
+          findUnique: async () => ({ availabilityMode: 'HABITUAL', business: { timezone: 'America/Argentina/Buenos_Aires' } }),
           findMany: async () => [{ id: 'pro-a' }] },
         service: { findMany: async ({ where }: any) => services.filter(s => where.id.in.includes(s.id)) },
         professionalService: { count: async ({ where }: any) => where.serviceId.in.length },

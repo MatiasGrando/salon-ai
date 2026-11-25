@@ -194,6 +194,11 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
   const path = rawPath.split('?')[0] || '/'
   const verb = method.toUpperCase()
 
+  if (path.startsWith('/availability-weeks')) return verb === 'GET' ? user.canCreateAppointments || user.canEditAppointments : user.canManageScheduleBlocks
+  if (path.startsWith('/recurring-bookings')) return verb === 'GET' ? user.canCreateAppointments || user.canEditAppointments : path.endsWith('/skip') ? user.canCancelAppointments : verb === 'POST' ? user.canCreateAppointments : user.canEditAppointments
+  if (path.startsWith('/benefit-plans')) return verb === 'GET' && user.canRecordAppointmentPayments
+  if (path.startsWith('/customer-benefits') || /^\/customers\/[^/]+\/benefits$/.test(path)) return user.canRecordAppointmentPayments
+
   if (path.startsWith('/product-categories')) return verb === 'GET' ? user.canViewProducts : user.canManageProducts
   if (path.startsWith('/products')) return verb === 'GET' ? user.canViewProducts : user.canManageProducts
   if (path.startsWith('/product-sales')) return verb === 'POST' && user.canSellProducts && user.canRecordAppointmentPayments
@@ -299,7 +304,7 @@ export function staffVisibleSections(user: StaffAuthorizationUser) {
   ].filter((value): value is string => Boolean(value))
 }
 
-export function staffCanUseProfessional(user: StaffAuthorizationUser, professionalId: string | null | undefined) {
+export function staffCanUseProfessional(user: Pick<StaffAuthorizationUser, 'role' | 'agendaScope' | 'professionalId'>, professionalId: string | null | undefined) {
   return user.role !== 'STAFF' || user.agendaScope === 'ALL' || Boolean(user.professionalId && user.professionalId === professionalId)
 }
 

@@ -12,6 +12,131 @@ datasource db {
   provider = "postgresql"
 }
 
+model AvailabilityWeek {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  professionalId String
+  professional Professional @relation(fields: [businessId, professionalId], references: [businessId, id], onDelete: Restrict)
+  weekStart String
+  draftHours Json
+  publishedHours Json?
+  revision Int @default(0)
+  publishedAt DateTime?
+  updatedAt DateTime @updatedAt
+  @@unique([professionalId, weekStart])
+  @@index([businessId, weekStart])
+}
+
+model RecurringBooking {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  customerId String
+  customer Customer @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict)
+  professionalId String
+  professional Professional @relation(fields: [businessId, professionalId], references: [businessId, id], onDelete: Restrict)
+  serviceId String
+  service Service @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  startsOn String
+  endsOn String?
+  time String
+  frequency String
+  status String @default("ACTIVE")
+  useBenefits Boolean @default(false)
+  revision Int @default(0)
+  occurrences RecurringOccurrence[]
+  createdAt DateTime @default(now())
+  @@unique([businessId, id])
+  @@index([businessId, professionalId, status])
+}
+
+model RecurringOccurrence {
+  id String @id @default(cuid())
+  businessId String
+  ruleId String
+  rule RecurringBooking @relation(fields: [businessId, ruleId], references: [businessId, id], onDelete: Restrict)
+  date String
+  status String
+  conflict String?
+  appointmentId String? @unique
+  appointment Appointment? @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict)
+  @@unique([ruleId, date])
+  @@unique([businessId, appointmentId])
+  @@index([businessId, status])
+}
+
+model BenefitPlan {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  name String
+  kind String
+  serviceIds String[]
+  serviceRules Json @default("[]")
+  totalUses Int?
+  discountPercent Int @default(0)
+  price Int
+  validityDays Int @default(31)
+  cancellationHours Int @default(24)
+  consumeLateCancellation Boolean @default(false)
+  consumeNoShow Boolean @default(false)
+  isActive Boolean @default(true)
+  grants CustomerBenefit[]
+  @@unique([businessId, id])
+  @@index([businessId, isActive])
+}
+
+model CustomerBenefit {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  customerId String
+  customer Customer @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict)
+  planId String
+  plan BenefitPlan @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  name String
+  kind String
+  serviceIds String[]
+  serviceRules Json @default("[]")
+  totalUses Int?
+  discountPercent Int
+  price Int
+  startsOn String
+  endsOn String
+  cancellationHours Int
+  consumeLateCancellation Boolean
+  consumeNoShow Boolean
+  cashEntryId String @unique
+  cashEntry CashEntry @relation(fields: [businessId, cashEntryId], references: [businessId, id], onDelete: Restrict)
+  requestKey String
+  requestHash String
+  uses BenefitUse[]
+  createdAt DateTime @default(now())
+  @@unique([businessId, id])
+  @@unique([businessId, requestKey])
+  @@unique([businessId, cashEntryId])
+  @@index([businessId, customerId, endsOn])
+}
+
+model BenefitUse {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  benefitId String
+  benefit CustomerBenefit @relation(fields: [businessId, benefitId], references: [businessId, id], onDelete: Restrict)
+  appointmentId String @unique
+  appointment Appointment @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict)
+  state String @default("RESERVED")
+  originalPrice Int
+  coveredAmount Int
+  allocations Json @default("[]")
+  commissionBase Int?
+  createdAt DateTime @default(now())
+  @@index([benefitId, state])
+  @@unique([businessId, appointmentId])
+}
+
 // ─── Motor determinístico por opciones (bot-options) ─────────────────────────
 // Tablas aditivas de etapa 1. Los vínculos con negocio/conversación usan
 // columnas + índices para mantener esta extensión compatible con el runtime
@@ -911,6 +1036,11 @@ enum WorkshopVehicleUsage {
 }
 
 model Business {
+  availabilityWeeks AvailabilityWeek[]
+  recurringBookings RecurringBooking[]
+  benefitPlans BenefitPlan[]
+  customerBenefits CustomerBenefit[]
+  benefitUses BenefitUse[]
   businessType           BusinessType                  @default(SALON)
   id                     String                        @id @default(cuid())
   customerCode           String                        @unique
@@ -1798,6 +1928,7 @@ model Professional {
   avatarUrl             String?
   isActive              Boolean                      @default(true)
   acceptsBotBookings    Boolean                      @default(true)
+  availabilityMode      String                       @default("HABITUAL")
   botBookingPriority    Int                          @default(100)
   deactivatedAt         DateTime?
   archivedAt            DateTime?
@@ -1815,6 +1946,8 @@ model Professional {
   serviceLinks   ProfessionalService[]
   accountEntries ProfessionalAccountEntry[]
   users          User[]
+  availabilityWeeks AvailabilityWeek[]
+  recurringBookings RecurringBooking[]
 
   createdAt DateTime @default(now())
 
@@ -1823,6 +1956,7 @@ model Professional {
 }
 
 model Service {
+  recurringBookings RecurringBooking[]
   id String @id @default(cuid())
 
   name                  String
@@ -1978,6 +2112,8 @@ model ServiceAlias {
 }
 
 model Customer {
+  recurringBookings RecurringBooking[]
+  benefits CustomerBenefit[]
   id String @id @default(cuid())
 
   businessId        String?
@@ -2250,6 +2386,8 @@ model BookingVisit {
 }
 
 model Appointment {
+  recurringOccurrence RecurringOccurrence?
+  benefitUse BenefitUse?
   id String @id @default(cuid())
 
   businessId String
@@ -2606,6 +2744,7 @@ model CashExpenseSubcategory {
 }
 
 model CashEntry {
+  customerBenefit CustomerBenefit?
   id                       String                    @id @default(cuid())
   businessId               String
   business                 Business                  @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)

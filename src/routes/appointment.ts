@@ -526,9 +526,12 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
           ...appointmentFinanceProfessionalScope(request.auth.user) })
       }
       const finance = await cashService.getAppointmentFinance({ businessId, appointmentId: params.id })
-      if (request.auth?.user.role !== 'STAFF') return finance
+      const benefit = await prisma.benefitUse.findUnique({ where: { appointmentId: params.id }, select: { businessId: true, coveredAmount: true, benefit: { select: { name: true, endsOn: true } } } })
+      const membership = benefit?.businessId === businessId ? { ...benefit.benefit, coveredAmount: benefit.coveredAmount } : null
+      if (request.auth?.user.role !== 'STAFF') return { ...finance, membership }
       return {
         ...finance,
+        membership,
         serviceCorrections: (finance.serviceCorrections || []).map(({ previousCompensation: _before, newCompensation: _after, requestFingerprint: _fingerprint, requestId: _requestId, ...correction }) => correction)
       }
     } catch (error) {

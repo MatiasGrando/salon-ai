@@ -20,7 +20,7 @@ function settingsFromRow(row: SettingsRow | undefined): AvailabilitySettings {
     morningCutTime: row.morningCutTime, eveningCutTime: row.eveningCutTime
   })
 }
-type HoursRow = { ownerId: string; dayOfWeek: number; startTime: string; endTime: string }
+type HoursRow = { ownerId: string; dayOfWeek: number; startTime: string; endTime: string; date?: string; published?: boolean }
 type BusyRow = { professionalId: string; startAt: Date; duration: number }
 type BlockRow = { professionalId: string | null; startAt: Date; endAt: Date }
 
@@ -147,7 +147,17 @@ export class PrismaAvailabilityRepository {
       if (!from || !to) throw new Error('availability horizon cannot be represented in tenant timezone')
       const [businessHours, professionalHours, blocks, busy] = await Promise.all([
         this.client.$queryRaw<HoursRow[]>(Prisma.sql`SELECT "businessId" AS "ownerId", "dayOfWeek", "startTime", "endTime" FROM "BusinessHours" WHERE "businessId" = ${input.businessId}`),
-        this.client.$queryRaw<HoursRow[]>(Prisma.sql`SELECT "professionalId" AS "ownerId", "dayOfWeek", "startTime", "endTime" FROM "ProfessionalHours" WHERE "professionalId" IN (${Prisma.join(professionalIds)})`),
+        this.client.$queryRaw<HoursRow[]>(Prisma.sql`
+          SELECT h."professionalId" AS "ownerId", h."dayOfWeek", h."startTime", h."endTime", NULL::text AS date, true AS published
+          FROM "ProfessionalHours" h JOIN "Professional" p ON p.id=h."professionalId"
+          WHERE p."businessId"=${input.businessId} AND p."availabilityMode"='HABITUAL' AND p.id IN (${Prisma.join(professionalIds)})
+          UNION ALL
+          SELECT p.id, extract(dow from d.day)::int, coalesce(h.value->>'startTime',''), coalesce(h.value->>'endTime',''), to_char(d.day,'YYYY-MM-DD'), w."publishedAt" IS NOT NULL
+          FROM "Professional" p CROSS JOIN generate_series(${firstDate}::date, ${lastDate}::date - 1, interval '1 day') d(day)
+          LEFT JOIN "AvailabilityWeek" w ON w."professionalId"=p.id AND w."businessId"=p."businessId" AND w."weekStart"=to_char(date_trunc('week',d.day),'YYYY-MM-DD')
+          LEFT JOIN LATERAL jsonb_array_elements(coalesce(w."publishedHours",'[]'::jsonb)) h(value) ON h.value->>'date'=to_char(d.day,'YYYY-MM-DD')
+          WHERE p."businessId"=${input.businessId} AND p."availabilityMode"='MANUAL' AND p.id IN (${Prisma.join(professionalIds)})
+        `),
         this.client.$queryRaw<BlockRow[]>(Prisma.sql`SELECT "professionalId", "startAt", "endAt" FROM "ScheduleBlock" WHERE "businessId" = ${input.businessId} AND "startAt" < ${to} AND "endAt" > ${from} AND ("professionalId" IS NULL OR "professionalId" IN (${Prisma.join(professionalIds)}))`),
         this.client.$queryRaw<BusyRow[]>(Prisma.sql`
           SELECT a."professionalId", a."startAt", a."totalDurationMinutes" AS "duration"
@@ -171,10 +181,11 @@ export class PrismaAvailabilityRepository {
         const businessWindows = businessHours.filter((row) => row.dayOfWeek === weekday)
         const evidenceRows: AvailabilityRejections[] = []
         for (const professional of professionals) {
-          const proWindows = professionalHours.filter((row) => row.ownerId === professional.id && row.dayOfWeek === weekday)
+          const proWindows = professionalHours.filter((row) => row.ownerId === professional.id && (row.date ? row.date === date : row.dayOfWeek === weekday) && row.startTime < row.endTime)
+          const hoursNotPublished = professionalHours.some(row => row.ownerId === professional.id && row.date === date && row.published === false)
           const dayBusy = busy.filter((row) => row.professionalId === professional.id && localDateKey(row.startAt, input.settings.timezone) === date)
           const occupiedMinutes = dayBusy.reduce((sum, row) => sum + row.duration, 0)
-          const evidence: AvailabilityRejections = { professionalId: professional.id, hasWorkingHours: proWindows.length > 0, hasJointWindow: false, intervalCount: 0, leadTime: 0, blocked: 0, busy: 0, slotCount: 0 }
+          const evidence: AvailabilityRejections = { professionalId: professional.id, hoursNotPublished, hasWorkingHours: proWindows.length > 0, hasJointWindow: false, intervalCount: 0, leadTime: 0, blocked: 0, busy: 0, slotCount: 0 }
           const accepted = new Set<string>()
           for (const businessWindow of businessWindows) for (const proWindow of proWindows) {
             const start = Math.max(parseMinutes(businessWindow.startTime) ?? 1440, parseMinutes(proWindow.startTime) ?? 1440)
@@ -221,7 +232,9 @@ export class PrismaAvailabilityRepository {
       }).sort((a, b) => a.startAt.localeCompare(b.startAt) || a.professionalId.localeCompare(b.professionalId))
       const requestedStart = input.diagnostics && input.requestedStart ? buildRequestedStartEvidence({
         businessId: input.businessId, serviceIds: input.serviceIds, durationMinutes: input.durationMinutes, customerDurationMinutes,
-        requestedStart: input.requestedStart, dbNow: input.dbNow, settings: input.settings, professionals, businessHours, professionalHours, blocks, busy
+        requestedStart: input.requestedStart, dbNow: input.dbNow, settings: input.settings, professionals, businessHours,
+        professionalHours: professionalHours.filter(row => row.startTime < row.endTime),
+        unpublishedProfessionalIds: professionalHours.filter(row => row.date === input.requestedStart!.date && row.published === false).map(row => row.ownerId), blocks, busy
       }) : undefined
       return { professionals, slots, ...(input.diagnostics ? { evidence: { version: 1 as const, days, ...(requestedStart ? { requestedStart } : {}) } } : {}) }
     })

@@ -2883,21 +2883,38 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
             })
             const appointments = state.guestAppointments || []
+            const payable = a => { const original = Number.isFinite(a.quotedPrice) ? a.quotedPrice : a.service?.price; return Number.isFinite(original) ? Math.max(0,original - (a.benefitUse?.coveredAmount || 0)) : null }
             els.summaryLines.innerHTML = appointments.map((appointment) => '<div class="summary-card-line primary-line">' +
               '<div><strong>' + escapeHtml(appointment.service?.name || 'Servicio') + '</strong><span>' + escapeHtml(appointment.professional?.name || '') + '</span>' +
               '<span>' + escapeHtml(clock.format(new Date(appointment.startAt))) + '</span><span>' + escapeHtml((appointment.totalDurationMinutes ?? appointment.service?.duration ?? '') + ' min') + '</span></div>' +
-              '<b>' + escapeHtml(Number.isFinite(appointment.quotedPrice) ? formatPrice(appointment.quotedPrice) : 'Precio a consultar') + '</b></div>').join('') +
+              '<b>' + escapeHtml(appointment.benefitUse && payable(appointment) === 0 ? 'Cubierto por ' + appointment.benefitUse.benefit.name : payable(appointment) !== null ? formatPrice(payable(appointment)) : 'Precio a consultar') + '</b></div>').join('') +
               (state.deposit ? '<div class="summary-card-line summary-deposit"><span>Se&ntilde;a del pedido</span><strong>' + escapeHtml(formatPrice(state.deposit.amount)) + '</strong></div>' : '')
-            const knownPrices = appointments.length && appointments.every((appointment) => Number.isFinite(appointment.quotedPrice))
-            els.total.textContent = knownPrices ? formatPrice(appointments.reduce((total, appointment) => total + appointment.quotedPrice, 0)) : 'A consultar'
+            const knownPrices = appointments.length && appointments.every((appointment) => payable(appointment) !== null)
+            els.total.textContent = knownPrices ? formatPrice(appointments.reduce((total, appointment) => total + payable(appointment), 0)) : 'A consultar'
             els.totalDivider.hidden = !appointments.length
             els.totalRow.hidden = !appointments.length
             els.mobileBar.hidden = true
             document.querySelector('.fresha-summary')?.classList.add('guest-reservation-detail')
           }
 
+          function webMembershipFor(serviceId) { return (state.membershipQuotes || []).find(q => q.serviceId === serviceId) }
+          function membershipSummaryTotal() {
+            const services = selectedServices()
+            if ((state.membershipQuotes || []).length && services.every(s => (s.priceMode || 'FIXED') === 'FIXED' && Number.isFinite(s.price))) return formatPrice(services.filter(s => !webMembershipFor(s.id)).reduce((sum,s) => sum + s.price,0))
+            return combinedDisplayPrice()
+          }
+          function refreshWebMembershipQuote() {
+            if (state.confirmed || state.deposit || state.bookingView) return
+            const ids = selectedServices().map(s => s.id), key = state.weexAccount?.phone && state.date && ids.length ? [state.weexAccount.id,state.date,...ids].join('|') : ''
+            if (key === (state.membershipQuoteKey || '')) return
+            state.membershipQuoteKey = key; state.membershipQuotes = []
+            if (!key) return
+            void postJson(bookingApiUrl('/membership-quote'),{date:state.date,serviceIds:ids}).then(quotes => { if (state.membershipQuoteKey !== key || state.confirmed || state.deposit) return; state.membershipQuotes = quotes; renderSummary() }).catch(() => {})
+          }
+
           function renderSummary() {
-            if (state.guestBooking && state.bookingView === 'detail' && state.guestAppointments?.every((appointment) => appointment.startAt)) {
+            refreshWebMembershipQuote()
+            if ((state.guestBooking || state.guestAppointments?.some(a => a.benefitUse)) && state.bookingView === 'detail' && state.guestAppointments?.every((appointment) => appointment.startAt)) {
               renderGuestBookingSummary()
               return
             }
@@ -2906,13 +2923,13 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               lines.push(
                 '<div class="summary-card-line primary-line">' +
                   '<div><strong>' + escapeHtml(service.name) + '</strong><span>' + escapeHtml(service.displayDuration || (service.duration + ' min')) + '</span></div>' +
-                  '<b>' + escapeHtml(serviceDisplayPrice(service)) + '</b>' +
+                  '<b>' + escapeHtml(webMembershipFor(service.id) ? 'Incluido en ' + webMembershipFor(service.id).name : serviceDisplayPrice(service)) + '</b>' +
                 '</div>'
               )
             }
             const totalDeposit = selectedServices().reduce((total, service) => total + (selectedDepositAmount(service) || 0), 0)
             if (selectedServices().length) lines.push(
-              '<div class="summary-card-line summary-subtotal"><span>Subtotal</span><strong>' + escapeHtml(combinedDisplayPrice()) + '</strong></div>'
+              '<div class="summary-card-line summary-subtotal"><span>Total pendiente</span><strong>' + escapeHtml(membershipSummaryTotal()) + '</strong></div>'
             )
             if (totalDeposit) lines.push(
               '<div class="summary-card-line summary-deposit"><span>Se&ntilde;a a pagar ahora</span><strong>' + escapeHtml(formatPrice(totalDeposit)) + '</strong></div>'
@@ -2952,11 +2969,11 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             els.summaryLines.innerHTML = lines.length ? lines.join('') : '<div class="summary-empty">Elegi un servicio para ver el resumen de tu turno.</div>'
             els.totalDivider.hidden = !selectedServices().length
             els.totalRow.hidden = !selectedServices().length
-            els.total.textContent = selectedServices().length ? combinedDisplayPrice() : '-'
+            els.total.textContent = selectedServices().length ? membershipSummaryTotal() : '-'
             const serviceCount = selectedServices().length
             const totalDuration = selectedServices().reduce((total, service) => total + Number(service.duration || 0), 0)
             els.mobileCount.textContent = serviceCount + ' ' + (serviceCount === 1 ? 'servicio' : 'servicios') + (totalDuration ? ' · ' + totalDuration + ' min' : '')
-            els.mobileTotal.textContent = serviceCount ? 'Total ' + combinedDisplayPrice() : 'Total $0'
+            els.mobileTotal.textContent = serviceCount ? 'Total ' + membershipSummaryTotal() : 'Total $0'
             document.getElementById('booking-mobile-detail').innerHTML = lines.join('')
             els.mobileBar.hidden = Boolean(state.deposit || state.confirmed || state.proofSent)
             if (currentStepId() === 'service' && selectedServices().length) {
@@ -3041,6 +3058,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function selectedDepositAmount(service) {
+            if (webMembershipFor(service.id)) return 0
             if (!service || service.depositMode === 'NONE') return null
             if (service.depositMode === 'FIXED') return Number(service.depositValue) || null
             const estimateBase = serviceDetail(service).estimateOption?.priceMin ??
@@ -3709,6 +3727,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                     validationAccepted: serviceDetail(state.service).validationAccepted
                   })
               state.calendarSync = result.calendarSync || null
+              state.membershipQuoteKey = ''; state.membershipQuotes = []
               state.guestBooking = result.guest === true
               state.guestAppointments = result.appointments || (result.appointment ? [result.appointment] : [])
               state.bookingDraft = null

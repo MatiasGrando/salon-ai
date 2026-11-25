@@ -27,12 +27,14 @@ export function calculateProfessionalCompensation(input: { baseAmount: number; r
   return 0
 }
 
-type CompensationSource = { businessId: string; appointmentId: string; professionalId: string; serviceId: string; serviceSubtotal: number | null; agreedAmount: number | null; quotedPrice: number | null; servicePrice: number | null; commissionMode: ProfessionalCompensationRule['mode']; commissionPercentage: Prisma.Decimal | number | null; commissionFixedAmount: number | null }
+type CompensationSource = { businessId: string; appointmentId: string; professionalId: string; serviceId: string; serviceSubtotal: number | null; agreedAmount: number | null; quotedPrice: number | null; servicePrice: number | null; membershipCommissionBase?: number | null; membershipCoveredAmount?: number | null; membershipOriginalPrice?: number | null; commissionMode: ProfessionalCompensationRule['mode']; commissionPercentage: Prisma.Decimal | number | null; commissionFixedAmount: number | null }
 
 export async function ensureProfessionalEarningForCompletedAppointment(transaction: Prisma.TransactionClient, input: { businessId: string; appointmentId: string; actorUserId: string | null; actorName: string; effectiveAt?: Date }) {
   const rows = await transaction.$queryRaw<CompensationSource[]>(Prisma.sql`
     SELECT appointment."businessId", appointment."id" AS "appointmentId", appointment."professionalId", appointment."serviceId",
       product_sale."serviceSubtotal", account."agreedAmount", appointment."quotedPrice", service."price" AS "servicePrice",
+      benefit."commissionBase" AS "membershipCommissionBase", benefit."coveredAmount" AS "membershipCoveredAmount",
+      benefit."originalPrice" AS "membershipOriginalPrice",
       professional."commissionMode"::text AS "commissionMode", professional."commissionPercentage", professional."commissionFixedAmount"
     FROM "Appointment" appointment
     JOIN "Professional" professional ON professional."id" = appointment."professionalId"
@@ -40,6 +42,7 @@ export async function ensureProfessionalEarningForCompletedAppointment(transacti
     LEFT JOIN "AppointmentAccountLink" link ON link."businessId" = appointment."businessId" AND link."appointmentId" = appointment."id"
     LEFT JOIN "AppointmentAccount" account ON account."businessId" = link."businessId" AND account."id" = link."accountId"
     LEFT JOIN "ProductSale" product_sale ON product_sale."businessId" = appointment."businessId" AND product_sale."appointmentId" = appointment."id"
+    LEFT JOIN "BenefitUse" benefit ON benefit."businessId" = appointment."businessId" AND benefit."appointmentId" = appointment."id" AND benefit.state = 'CONSUMED'
     WHERE appointment."businessId" = ${input.businessId} AND appointment."id" = ${input.appointmentId}
       AND appointment."status" = 'COMPLETED'::"AppointmentStatus" LIMIT 1
   `)
@@ -55,7 +58,8 @@ export async function ensureProfessionalEarningForCompletedAppointment(transacti
     percentage: override?.commissionMode ? Number(override.commissionPercentage) : Number(source.commissionPercentage),
     fixedAmount: override?.commissionMode ? override.commissionFixedAmount : source.commissionFixedAmount
   })
-  const baseAmount = source.serviceSubtotal ?? source.agreedAmount ?? source.quotedPrice ?? source.servicePrice ?? 0
+  const normalBase = source.membershipOriginalPrice ?? source.serviceSubtotal ?? source.agreedAmount ?? source.quotedPrice ?? source.servicePrice ?? 0
+  const baseAmount = source.membershipCommissionBase == null ? normalBase : source.membershipCommissionBase + Math.max(0, normalBase - (source.membershipCoveredAmount ?? 0))
   const amount = calculateProfessionalCompensation({ baseAmount, rule })
   const inserted = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     INSERT INTO "ProfessionalAccountEntry" ("id", "businessId", "professionalId", "appointmentId", "type", "direction", "amount", "baseAmount", "ruleMode", "rulePercentage", "ruleFixedAmount", "description", "actorUserId", "actorName", "effectiveAt")

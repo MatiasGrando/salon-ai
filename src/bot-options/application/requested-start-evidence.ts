@@ -13,7 +13,7 @@ export type RequestedStartScope = {
   durationMinutes: number; customerDurationMinutes: number; dbNow: Date; timezone: string
   professionals: readonly AvailabilityProfessional[]; professionalId?: string
 }
-type Hours = { ownerId: string; dayOfWeek: number; startTime: string; endTime: string }
+type Hours = { ownerId: string; dayOfWeek: number; startTime: string; endTime: string; date?: string }
 type Busy = { professionalId: string; startAt: Date; duration: number }
 type Block = { professionalId: string | null; startAt: Date; endAt: Date }
 const bounded = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max && !/[\u0000-\u001f]/.test(v)
@@ -31,6 +31,7 @@ export function buildRequestedStartEvidence(input: {
   requestedStart: { date: string; time: string }; dbNow: Date; settings: AvailabilitySettings
   professionals: readonly AvailabilityProfessional[]; businessHours: readonly Hours[]; professionalHours: readonly Hours[]
   blocks: readonly Block[]; busy: readonly Busy[]
+  unpublishedProfessionalIds?: readonly string[]
 }): RequestedStartEvidence | undefined {
   const { date, time } = input.requestedStart
   if (!bounded(date, 10) || !bounded(time, 5) || !validDate(input.dbNow) || !duration(input.durationMinutes) || !duration(input.customerDurationMinutes) ||
@@ -53,9 +54,9 @@ export function buildRequestedStartEvidence(input: {
   const finish = new Date(instant.getTime() + input.durationMinutes * 60000)
   const customerFinish = new Date(instant.getTime() + input.customerDurationMinutes * 60000)
   const professionals = input.professionals.map(pro => {
-    const proWindows = input.professionalHours.filter(row => row.ownerId === pro.id && row.dayOfWeek === weekday)
+    const proWindows = input.professionalHours.filter(row => row.ownerId === pro.id && (row.date ? row.date === date : row.dayOfWeek === weekday))
     const proAtStart = proWindows.filter(contains)
-    let reasons: AvailabilityCause[] = !businessWindows.length ? ['BUSINESS_CLOSED']
+    let reasons: AvailabilityCause[] = input.unpublishedProfessionalIds?.includes(pro.id) ? ['HOURS_NOT_PUBLISHED'] : !businessWindows.length ? ['BUSINESS_CLOSED']
       : !businessAtStart.length ? ['REQUESTED_START_OUTSIDE_BUSINESS_HOURS']
       : !proWindows.length ? ['PROFESSIONAL_NOT_WORKING']
       : !proAtStart.length ? ['REQUESTED_START_OUTSIDE_PROFESSIONAL_HOURS']
@@ -94,7 +95,7 @@ export function parseRequestedStartExplanation(value: unknown, scope: RequestedS
     new Set(scope.professionals.map(p => p.id)).size !== scope.professionals.length) return fail()
   try { if (!targetInstant(scope.date, scope.time, scope.timezone)) return fail() } catch { return fail() }
   const seen = new Set<string>()
-  const allowed: readonly AvailabilityCause[] = ['BUSINESS_CLOSED', 'PROFESSIONAL_NOT_WORKING', 'DURATION_DOES_NOT_FIT',
+  const allowed: readonly AvailabilityCause[] = ['HOURS_NOT_PUBLISHED', 'BUSINESS_CLOSED', 'PROFESSIONAL_NOT_WORKING', 'DURATION_DOES_NOT_FIT',
     'LEAD_TIME', 'BLOCKED', 'BUSY', 'REQUESTED_START_OUTSIDE_BUSINESS_HOURS', 'REQUESTED_START_OUTSIDE_PROFESSIONAL_HOURS']
   const rows = value.professionals.map(row => {
     if (!record(row) || !keys(row, 'available,professionalId,reasons') || !bounded(row.professionalId, 128) ||

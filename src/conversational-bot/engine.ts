@@ -584,6 +584,7 @@ function validateBasketAvailability(result: Extract<DialogueBasketAvailability, 
 function availabilityRecoveryMessage(serviceName: string, day: string, reasons: readonly AvailabilityCause[], professionalName?: string): string {
 
   const copy: Record<AvailabilityCause, string> = {
+    HOURS_NOT_PUBLISHED: 'Horarios todavia no habilitados para esa semana.',
     BUSINESS_CLOSED: 'El local no atiende ese día.',
     PROFESSIONAL_NOT_WORKING: professionalName ? professionalName + ' no tiene jornada de atención ese día.' : 'No hay jornada de atención ese día para uno o más de los profesionales compatibles.',
     NO_COMPATIBLE_WINDOW: professionalName ? 'Las jornadas del local y de ' + professionalName + ' no tienen una ventana de atención coincidente.' : 'Para uno o más profesionales, la jornada no coincide con la atención del local.',

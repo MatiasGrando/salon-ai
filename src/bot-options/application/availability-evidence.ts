@@ -2,7 +2,7 @@ import type { RequestedStartEvidence } from './requested-start-evidence.js'
 export { parseRequestedStartExplanation, type RequestedStartEvidence, type RequestedStartExplanation, type RequestedStartScope } from './requested-start-evidence.js'
 import { localDateKey, parseMinutes, type AvailabilitySlot, type AvailabilityProfessional } from './availability-queries.js'
 /** Internal fresh snapshot evidence. These finite causes contain no customer/provider text. */
-export const AVAILABILITY_CAUSES = ['BUSINESS_CLOSED', 'PROFESSIONAL_NOT_WORKING', 'NO_COMPATIBLE_WINDOW', 'DURATION_DOES_NOT_FIT', 'LEAD_TIME', 'BLOCKED', 'BUSY', 'NO_SLOTS', 'DATE_PAST', 'OUTSIDE_HORIZON', 'PREFERENCE_NO_MATCH', 'REQUESTED_START_OUTSIDE_BUSINESS_HOURS', 'REQUESTED_START_OUTSIDE_PROFESSIONAL_HOURS'] as const
+export const AVAILABILITY_CAUSES = ['HOURS_NOT_PUBLISHED', 'BUSINESS_CLOSED', 'PROFESSIONAL_NOT_WORKING', 'NO_COMPATIBLE_WINDOW', 'DURATION_DOES_NOT_FIT', 'LEAD_TIME', 'BLOCKED', 'BUSY', 'NO_SLOTS', 'DATE_PAST', 'OUTSIDE_HORIZON', 'PREFERENCE_NO_MATCH', 'REQUESTED_START_OUTSIDE_BUSINESS_HOURS', 'REQUESTED_START_OUTSIDE_PROFESSIONAL_HOURS'] as const
 export type AvailabilityCause = typeof AVAILABILITY_CAUSES[number]
 export type ProfessionalAvailabilityEvidence = { professionalId: string; reasons: AvailabilityCause[]; slotCount: number }
 export type DateAvailabilityEvidence = { date: string; reasons: AvailabilityCause[]; professionals: ProfessionalAvailabilityEvidence[] }
@@ -12,10 +12,10 @@ export type AvailabilityExplanation = {
   /** Real compatible slots; bounded alternatives are suggestions, not a preference change. */
   otherProfessionals: AvailabilitySlot[]; nextDates: AvailabilitySlot[]
 }
-export type AvailabilityRejections = { professionalId: string; hasWorkingHours: boolean; hasJointWindow: boolean; intervalCount: number; leadTime: number; blocked: number; busy: number; slotCount: number }
+export type AvailabilityRejections = { professionalId: string; hoursNotPublished?: boolean; hasWorkingHours: boolean; hasJointWindow: boolean; intervalCount: number; leadTime: number; blocked: number; busy: number; slotCount: number }
 export function explainAvailabilityDay(date: string, businessOpen: boolean, rows: readonly AvailabilityRejections[]): DateAvailabilityEvidence {
   const professionals = rows.map(row => {
-    const reasons: AvailabilityCause[] = row.slotCount ? [] : !businessOpen ? ['BUSINESS_CLOSED']
+    const reasons: AvailabilityCause[] = row.slotCount ? [] : row.hoursNotPublished ? ['HOURS_NOT_PUBLISHED'] : !businessOpen ? ['BUSINESS_CLOSED']
       : !row.hasWorkingHours ? ['PROFESSIONAL_NOT_WORKING'] : !row.hasJointWindow ? ['NO_COMPATIBLE_WINDOW']
         : !row.intervalCount ? ['DURATION_DOES_NOT_FIT'] : [
           ...(row.leadTime ? ['LEAD_TIME' as const] : []), ...(row.blocked ? ['BLOCKED' as const] : []), ...(row.busy ? ['BUSY' as const] : [])

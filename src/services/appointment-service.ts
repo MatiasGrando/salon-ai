@@ -38,6 +38,10 @@ import { acquireBusinessAgendaLock, acquireAgendaHierarchy, lockAppointmentRows 
 import { revalidateBookingWrite } from './booking-operations.js'
 import { createAppointmentRecord, updateAppointmentRecord } from './prisma-booking.js'
 import { ensureProfessionalEarningForCompletedAppointment } from './professional-compensation.js'
+import { insidePublishedProfessionalHours } from './weekly-availability.js'
+import { weekStart, localParts, DEFAULT_BOOKING_TIMEZONE, type DatedHour } from './booking-program-domain.js'
+import { bookingAvailabilityUnavailableReason } from './booking-availability-reason.js'
+import { reserveBenefit } from './customer-benefits.js'
 
 const availabilitySlotInterval = 30
 
@@ -76,6 +80,8 @@ type CreateAppointmentOptions = {
   mutationRequest?: { requestId: string; requestFingerprint: string; requirePayment?: boolean; requireDiscount?: boolean }
   transaction?: Prisma.TransactionClient
   afterCommit?: Array<() => Promise<void>>
+  useCustomerBenefits?: boolean
+  canReceiveDeposit?: boolean
   skipDefaultMarketingPreference?: boolean
   afterCreateInTransaction?: (input: {
     transaction: Prisma.TransactionClient
@@ -118,6 +124,7 @@ type PublicBookingMutationResult =
         include: {
           bookingDeposit: true
           serviceItems: { include: { service: true } }
+          benefitUse: { select: { coveredAmount: true; benefit: { select: { name: true; endsOn: true } } } }
         }
       }>
     }
@@ -532,6 +539,9 @@ export class AppointmentService {
         },
         include: { serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } } }
       })
+      if (authorizationUser || options.useCustomerBenefits || input.origin === 'BOT') {
+        await reserveBenefit(transaction, { businessId: professional.businessId, customerId: input.customerId, appointmentId: createdAppointment.id, optional: true })
+      }
       await options.afterCreateInTransaction?.({
         transaction,
         appointment: createdAppointment,
@@ -625,7 +635,13 @@ export class AppointmentService {
         return 'AVAILABILITY_CONFLICT' as const
       }
 
-      const createdAppointment = await createAppointmentRecord(transaction, {
+      if (input.deposit && !options.useCustomerBenefits && options.canReceiveDeposit === false) {
+        throw new Error('Este comercio todavia no habilito transferencias para recibir la sena.')
+      }
+
+      // The benefit is reserved inside the same transaction as the appointment.
+      // Deposits are created afterwards, only when a service still needs payment.
+      let createdAppointment = await createAppointmentRecord(transaction, {
         data: {
           businessId: input.businessId,
           customerId: input.customerId,
@@ -636,19 +652,8 @@ export class AppointmentService {
           totalDurationMinutes: validation.professionalDuration,
           status: input.status ?? 'CONFIRMED',
           quotedPrice: normalizeQuotedPrice(input.quotedPrice),
-          ...(input.deposit ? {
-            bookingDeposit: {
-              create: {
-                businessId: input.businessId,
-                conversationId: null,
-                source: 'WEB',
-                mode: input.deposit.mode,
-                configuredValue: input.deposit.configuredValue,
-                baseAmount: input.deposit.baseAmount,
-                amount: input.deposit.amount,
-                expiresAt: input.deposit.expiresAt
-              }
-            }
+          ...(input.deposit && !options.useCustomerBenefits ? {
+            bookingDeposit: { create: { businessId: input.businessId, conversationId: null, source: 'WEB', ...input.deposit } }
           } : {}),
           serviceItems: {
             create: validation.orderedServices.map((service, sortOrder) => ({
@@ -661,9 +666,19 @@ export class AppointmentService {
         },
         include: {
           bookingDeposit: true,
+          benefitUse: { select: { coveredAmount: true, benefit: { select: { name: true, endsOn: true } } } },
           serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } }
         }
       })
+      const benefit = options.useCustomerBenefits ? await reserveBenefit(transaction, { businessId: input.businessId, customerId: input.customerId, appointmentId: createdAppointment.id, optional: true }) : null
+      const fullyCovered = benefit && benefit.coveredAmount === benefit.originalPrice
+      if (input.deposit && options.useCustomerBenefits && !fullyCovered) {
+        if (options.canReceiveDeposit === false) throw new Error('Este comercio todavia no habilito transferencias para recibir la sena.')
+        await transaction.bookingDeposit.create({ data: { businessId: input.businessId, appointmentId: createdAppointment.id, conversationId: null, source: 'WEB', ...input.deposit } })
+      } else if (fullyCovered && createdAppointment.status === 'PENDING') {
+        await transaction.appointment.update({ where: { id: createdAppointment.id }, data: { status: 'CONFIRMED' } })
+      }
+      if (options.useCustomerBenefits && (input.deposit || benefit)) createdAppointment = await transaction.appointment.findUniqueOrThrow({ where: { id: createdAppointment.id }, include: { bookingDeposit: true, benefitUse: { select: { coveredAmount: true, benefit: { select: { name: true, endsOn: true } } } }, serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } } } })
       await options.afterCreateInTransaction?.({ transaction, appointment: createdAppointment, businessId: input.businessId })
       return createdAppointment
     })
@@ -1045,6 +1060,14 @@ export class AppointmentService {
       })
       if (!input.force && conflicts.length) return conflicts
       markTiming?.('write-checks')
+      const benefit = await transaction.benefitUse.findUnique({ where: { appointmentId: input.id }, include: { benefit: true } })
+      if (benefit) {
+        const oldIds = existing.serviceItems.length ? existing.serviceItems.map(s => s.serviceId) : [existing.serviceId]
+        if (existing.customerId !== input.customerId || existing.serviceId !== input.serviceId || oldIds.length !== serviceIds.length || oldIds.some(id => !serviceIds.includes(id)) || existing.totalDurationMinutes !== validation.professionalDuration || manualDeposit?.ok && manualDeposit.paid) return 'BENEFIT_TERMS_CONFLICT' as const
+        const business = await transaction.business.findUniqueOrThrow({ where: { id: existing.businessId }, select: { timezone: true } })
+        const date = localParts(startAt, business.timezone || DEFAULT_BOOKING_TIMEZONE).date
+        if (date < benefit.benefit.startsOn || date > benefit.benefit.endsOn) return 'BENEFIT_PERIOD_CONFLICT' as const
+      }
       const updated = await updateAppointmentRecord(transaction, {
         where: scopedAppointmentMutationWhere(authorizationUser, input.id),
         data: {
@@ -1061,7 +1084,7 @@ export class AppointmentService {
             : {}),
           ...(notes?.ok ? { notes: notes.value } : {}),
           ...(attentionColor?.ok ? { attentionColor: attentionColor.value } : {}),
-          serviceItems: {
+          ...(!benefit ? { serviceItems: {
             deleteMany: {},
             create: validation.orderedServices.map((service, sortOrder) => ({
               serviceId: service.id,
@@ -1069,7 +1092,7 @@ export class AppointmentService {
               durationMinutes: service.duration,
               price: service.price
             }))
-          },
+          } } : {}),
           status: 'CONFIRMED'
         },
         include: {
@@ -1101,6 +1124,8 @@ export class AppointmentService {
 
     if (appointment === 'AUTHORIZATION_CONFLICT') return appointmentConflict()
     if (appointment === 'COMPLETED_IMMUTABLE') return completedAppointmentImmutable()
+    if (appointment === 'BENEFIT_TERMS_CONFLICT') return { ok: false, statusCode: 409, message: 'El turno esta cubierto por una membresia. Conserva sus servicios y titular; agenda los adicionales en otro turno.' }
+    if (appointment === 'BENEFIT_PERIOD_CONFLICT') return { ok: false, statusCode: 409, message: 'La nueva fecha queda fuera de la membresia. Elegi una fecha dentro de su vigencia o crea un turno a precio normal.' }
     if (appointment === 'DEPOSIT_CONFLICT') {
       return {
         ok: false,
@@ -1561,12 +1586,14 @@ export class AppointmentService {
           },
           orderBy: { sortOrder: 'asc' }
         },
+        benefitUse: { select: { coveredAmount: true, benefit: { select: { name: true, endsOn: true } } } },
         bookingDeposit: {
           select: { status: true, expiresAt: true }
         },
         ...(input.includeFinanceSummary
           ? {
-              visit: { select: { totalPrice: true } }
+              visit: { select: { totalPrice: true } },
+              benefitUse: { select: { coveredAmount: true, benefit: { select: { name: true, endsOn: true } } } }
             }
           : {})
       },
@@ -1598,6 +1625,7 @@ export class AppointmentService {
           name: true,
           businessId: true,
           isActive: true,
+          availabilityMode: true,
           serviceLinks: {
             where: { serviceId: { in: serviceIds } },
             select: { serviceId: true }
@@ -1665,6 +1693,11 @@ export class AppointmentService {
     }
     if (!validPrepared.length) return prepared.map((_, index) => resultByIndex.get(index)!)
 
+    const manualIds = professionals.filter(p => p.availabilityMode === 'MANUAL').map(p => p.id)
+    const publishedWeeks = manualIds.length ? await prisma.availabilityWeek.findMany({ where: {
+      professionalId: { in: manualIds }, weekStart: { in: [...new Set(inputs.map(i => weekStart(i.date)))] }
+    } }) : []
+
     const earliestDay = new Date(Math.min(...validPrepared.map((item) => item.dayStart.getTime())))
     const latestDay = new Date(Math.max(...validPrepared.map((item) => item.dayEnd.getTime())))
     const businessIds = Array.from(new Set(validPrepared.map((item) => item.professional.businessId)))
@@ -1712,11 +1745,18 @@ export class AppointmentService {
     ])
 
     for (const current of validPrepared) {
+      const manual = current.professional.availabilityMode === 'MANUAL'
+      const published = publishedWeeks.find(w => w.professionalId === current.professional.id && w.weekStart === weekStart(current.item.input.date))
+      if (manual && !published?.publishedAt) {
+        const unavailable = bookingAvailabilityUnavailableReason('HOURS_NOT_PUBLISHED')
+        resultByIndex.set(current.index, { ok: true, slots: [], unavailableReason: unavailable.message, unavailable })
+        continue
+      }
       const dayOfWeek = current.dayStart.getDay()
       const relevantBusinessHours = businessHours.filter((hours) =>
         hours.businessId === current.professional.businessId && hours.dayOfWeek === dayOfWeek
       )
-      const relevantProfessionalHours = professionalHours.filter((hours) =>
+      const relevantProfessionalHours = manual ? ((published?.publishedHours || []) as DatedHour[]).filter(h => h.date === current.item.input.date) : professionalHours.filter((hours) =>
         hours.professionalId === current.professional.id && hours.dayOfWeek === dayOfWeek
       )
       const relevantBlocks = scheduleBlocks.filter((block) =>
@@ -1806,6 +1846,8 @@ export class AppointmentService {
     startAt: Date
     endAt: Date
   }) {
+    const published = await insidePublishedProfessionalHours(prisma, input)
+    if (published !== null) return published
     if (input.startAt.toDateString() !== input.endAt.toDateString()) {
       return false
     }
@@ -2200,7 +2242,7 @@ export function normalizeAppointmentAttentionColor(value: string | null | undefi
     return { ok: true as const, value: 'NONE' as const }
   }
   if (value === 'NONE' || value === 'YELLOW' || value === 'ORANGE') {
-    return { ok: true as const, value }
+      return { ok: true as const, value: value as 'NONE' | 'YELLOW' | 'ORANGE' }
   }
   return { ok: false as const, message: 'El color de atencion del turno no es valido' }
 }

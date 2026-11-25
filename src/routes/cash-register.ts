@@ -10,6 +10,7 @@ import { hasCashPermission, type CashPermission, type StaffAuthorizationUser } f
 import { requireAuthorizedBusiness } from '../services/business-authorization.js'
 import type { AuthUser } from '../services/auth-service.js'
 import { financialCorrectionDirections, isFinancialEffectiveDate, resolveFinancialEffectiveAt } from '../services/financial-effective-date.js'
+import { BookingProgramError } from '../services/booking-program-domain.js'
 
 type CashRegisterRoutesOptions = {
   cashService?: CashService
@@ -584,6 +585,9 @@ function validation(reply: FastifyReply, message: string) {
 }
 
 export function sendCashError(reply: FastifyReply, error: unknown) {
+  if (error instanceof BookingProgramError) return reply.status(error.statusCode).send({ code: error.code, message: error.message })
+  const membershipConflict = error instanceof Error ? /BENEFIT_OUTSIDE_PAID_PERIOD|MEMBERSHIP_SERVICE_EXHAUSTED|BENEFIT_APPOINTMENT_TERMS_LOCKED|BENEFIT_SERVICE_ITEMS_LOCKED|MEMBERSHIP_COVERAGE_LOCKED/.exec(error.message)?.[0] : null
+  if (membershipConflict) return reply.status(409).send({ code: membershipConflict, message: 'El turno tiene cobertura de membresia. Revisa sus servicios, usos disponibles y fecha de vigencia.' })
   const code = error instanceof CashServiceError || error instanceof CashDomainError || error instanceof AppointmentMutationRequestError ? error.code : 'INTERNAL_ERROR'
   if (code === 'APPOINTMENT_REQUEST_CONFLICT') return reply.status(409).send({ code, message: 'Esta solicitud ya se utilizó con otros datos. Revisá el turno antes de continuar' })
   if (code === 'APPOINTMENT_BALANCE_CHANGED') return reply.status(409).send({ code, message: 'El saldo cambió. Revisá el importe actualizado antes de confirmar' })

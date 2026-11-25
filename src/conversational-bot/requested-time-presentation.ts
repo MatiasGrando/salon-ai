@@ -5,6 +5,7 @@ export function requestedTimeExplanation(time: string, proof?: RequestedStartExp
   if (proof?.available) return 'No pude verificar una opción para completar este pedido a las ' + time + '.'
   if (!proof || proof.time !== time) return prefix
   const causes = {
+    HOURS_NOT_PUBLISHED: 'Horarios todavia no habilitados para esa semana.',
     BUSINESS_CLOSED: 'El local no atiende ese día.',
     PROFESSIONAL_NOT_WORKING: 'El profesional solicitado no tiene jornada de atención ese día.',
     REQUESTED_START_OUTSIDE_BUSINESS_HOURS: 'Ese inicio queda fuera del horario de atención del local.',

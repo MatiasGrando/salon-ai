@@ -15,6 +15,7 @@ import { instagramMediaMarkup, instagramMediaScript, instagramMediaStyles } from
 import { instagramPlanningMarkup, instagramPlanningScript, instagramPlanningStyles } from './crm-ui/instagram-planning.js'
 import { instagramStoriesMarkup, instagramStoriesScript, instagramStoriesStyles } from './crm-ui/instagram-stories.js'
 import { bookingEmailMediaMarkup, bookingEmailMediaScript, bookingEmailMediaStyles } from './crm-ui/booking-email-media.js'
+import { bookingProgramsMarkup, bookingProgramsScript, bookingProgramsStyles } from './crm-ui/booking-programs.js'
 
 export interface CrmUiRoutesOptions {
   readonly pollingMarker: PollingMarkerConfig
@@ -6962,6 +6963,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .services-header-actions {
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
       gap: 10px;
     }
 
@@ -16665,6 +16668,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     ${bookingEmailMediaStyles}
     ${cashRegisterEnabled ? cashRegisterStyles : ''}
     ${appointmentDialogStyles}
+    ${cashRegisterEnabled ? bookingProgramsStyles : ''}
   </style>
 </head>
 <body data-mobile-view="inbox" data-current-section="conversations" data-auth="checking">
@@ -17042,6 +17046,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <span data-icon="search"></span>
               <input id="customers-search" type="search" placeholder="Buscar por nombre o tel&eacute;fono" autocomplete="off">
             </label>
+            ${cashRegisterEnabled ? '<button class="secondary" id="customers-memberships" type="button" data-membership-catalog>Membres&iacute;as</button>' : ''}
             <button class="primary customer-new-button" id="customer-new-button" type="button"><span data-icon="plus"></span>Nuevo cliente</button>
           </div>
         </header>
@@ -17116,6 +17121,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     </section>
 
     ${cashRegisterEnabled ? cashRegisterMarkup : ''}
+    ${cashRegisterEnabled ? bookingProgramsMarkup : ''}
 
     <section class="agenda-view" id="agenda-view">
       <aside class="agenda-sidebar">
@@ -17712,6 +17718,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <div class="services-header-actions">
             <button class="secondary service-category-open" id="service-category-open" type="button">Gestionar categor&iacute;as</button>
             <button class="secondary service-category-open" id="service-family-open" type="button">Familias y variantes</button>
+            ${cashRegisterEnabled ? '<button class="secondary service-category-open" id="services-memberships" type="button" data-membership-catalog>Membres&iacute;as</button>' : ''}
             <div class="service-count-card">
               <div class="service-count-icon" data-icon="copy"></div>
               <div>
@@ -22665,6 +22672,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       applyAgendaPermissions()
       const isStaff = state.currentUser?.role === 'STAFF'
       if (els.customerNewButton) els.customerNewButton.hidden = isStaff && !state.currentUser?.canCreateCustomers
+      for (const button of document.querySelectorAll('[data-membership-catalog]')) {
+        button.hidden = isStaff && !state.currentUser?.canRecordAppointmentPayments
+      }
       if (els.customerEdit) els.customerEdit.hidden = isStaff && !state.currentUser?.canEditCustomers
       if (els.customerAddNote) els.customerAddNote.hidden = isStaff && !state.currentUser?.canManageCustomerNotes
       updateBusinessBrand()
@@ -25089,6 +25099,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           (customer.email ? '<a class="customer-contact-action" href="mailto:' + escapeHtml(customer.email) + '">' + icon('mail') + 'Email</a>' : '') +
           '<button class="customer-contact-action" type="button" data-mobile-open-customer-conversation="' + customer.id + '" ' + (customer.conversation ? '' : 'disabled') + '>' + icon('mail') + 'CRM</button>' +
           '<button class="primary" type="button" data-mobile-schedule-customer="' + customer.id + '">' + icon('calendar') + 'Agendar turno</button>' +
+          (${cashRegisterEnabled} && (state.currentUser?.role !== 'STAFF' || state.currentUser?.canRecordAppointmentPayments) ? '<button class="secondary" type="button" data-customer-benefits="' + escapeHtml(customer.id) + '">Membres&iacute;as</button>' : '') +
           (canEditCustomer ? '<button class="secondary" type="button" data-mobile-edit-customer="' + customer.id + '">' + icon('edit') + 'Editar</button>' : '') +
         '</div>' +
         (next
@@ -25206,6 +25217,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               '<button class="customer-contact-action conversation" type="button" data-open-customer-conversation title="' + (customer.conversation ? 'Abrir conversacion en el CRM' : 'Este cliente no tiene una conversacion') + '" aria-label="Abrir conversacion en el CRM" ' + (customer.conversation ? '' : 'disabled') + '>' + icon('mail') + '</button>' +
             '</div>' +
             (canCreateAppointments() ? '<button class="primary" type="button" data-schedule-customer>' + icon('calendar') + 'Agendar turno</button>' : '') +
+            (${cashRegisterEnabled} && (state.currentUser?.role !== 'STAFF' || state.currentUser?.canRecordAppointmentPayments) ? '<button class="secondary" type="button" data-customer-benefits="' + escapeHtml(customer.id) + '">Membres&iacute;as</button>' : '') +
             customerMenu +
           '</div>' +
         '</header>' +
@@ -32121,6 +32133,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (customer && !state.customers.some((item) => item.id === customer.id)) state.customers.push(customer)
       syncAppointmentCustomerFields()
       closeAppointmentCustomerResults()
+      if (typeof invalidateCreateMembershipQuote === 'function') invalidateCreateMembershipQuote()
+      if (typeof syncCreateAppointmentPayment === 'function') syncCreateAppointmentPayment()
     }
 
     function renderAppointmentCustomerResults(customers, query) {
@@ -40597,6 +40611,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     ${appointmentDialogLayoutScript}
     ${pipelineScript}
     ${cashRegisterEnabled ? cashRegisterScript : ''}
+    ${cashRegisterEnabled ? bookingProgramsScript : ''}
 
     hydrateIcons()
 

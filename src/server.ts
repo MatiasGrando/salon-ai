@@ -17,6 +17,8 @@ import { productSalesRoutes } from './routes/product-sales.js'
 import { businessHoursRoutes } from './routes/business-hours.js'
 import { professionalHoursRoutes } from './routes/professional-hours.js'
 import { availabilityRoutes } from './routes/availability.js'
+import { bookingProgramRoutes } from './routes/booking-programs.js'
+import { BookingProgramService } from './services/booking-program-service.js'
 import { chatRoutes } from './routes/chat.js'
 import { crmRoutes } from './routes/crm.js'
 import { businessBotRoutingRoutes } from './routes/business-bot-routing.js'
@@ -204,6 +206,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(professionalRoutes)
   await app.register(serviceRoutes)
   await app.register(customerRoutes)
+  await app.register(bookingProgramRoutes)
   await app.register(appointmentRoutes, { cashRegisterEnabled: cashRegisterConfig.enabled })
   if (cashRegisterConfig.enabled) {
     await app.register(cashRegisterRoutes)
