@@ -129,7 +129,12 @@ export const bookingProgramsScript = String.raw`
           document.getElementById('bp-purchase-method').innerHTML = methods.filter(m => m.isActive !== false).map(m => '<option value="' + bpEscape(m.id) + '">' + bpEscape(m.name) + '</option>').join('')
           document.getElementById('bp-benefit-appointment').innerHTML = appointments.filter(a => ['PENDING','CONFIRMED'].includes(a.status) && new Date(a.startAt) > new Date()).map(a => '<option value="' + bpEscape(a.id) + '">' + bpEscape(new Date(a.startAt).toLocaleString('es-AR')) + ' / ' + bpEscape(a.service?.name || '') + '</option>').join('')
         }
-      } catch (error) { if (version === bpLoadVersion) bpFeedback(error.message, true) }
+      } catch (error) {
+        if (version !== bpLoadVersion) return
+        document.getElementById('bp-plan-submit').hidden = true
+        bpBody.innerHTML = '<section class="bp-section"><p>No se pudo cargar esta secci&oacute;n.</p><button type="button" data-bp-retry>Reintentar</button></section>'
+        bpFeedback(error.message, true)
+      }
     }
     function bpCustomerField() { return bpCustomer ? '<input name="customerId" type="hidden" value="' + bpEscape(bpCustomer.id) + '"><label>Cliente<input value="' + bpEscape(bpCustomer.name) + '" disabled></label>' : '<label>Buscar cliente<input id="bp-customer-search" type="search" placeholder="Nombre o telefono"><select name="customerId" id="bp-customer-results"><option value="">Busca y selecciona un cliente</option></select></label>' }
     function bpServiceTerms(plan) {
@@ -182,6 +187,7 @@ export const bookingProgramsScript = String.raw`
     bpRoot.addEventListener('click', event => {
       const button = event.target.closest('button'); if (!button || bpBusy) return
       if (button.hasAttribute('data-bp-close')) { bpClose(); return }
+      if (button.hasAttribute('data-bp-retry')) { void bpRender(); return }
       if (button.dataset.bpTab) { bpTab = button.dataset.bpTab; void bpRender(); return }
       if (button.dataset.bpAdd) { button.parentElement.querySelector('[data-bp-ranges]').insertAdjacentHTML('beforeend', bpRange(button.dataset.bpAdd)); return }
       if (button.hasAttribute('data-bp-remove')) { button.closest('.bp-range').remove(); return }

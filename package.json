@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test:memberships": "tsx scripts/membership-domain-test.ts && tsx scripts/membership-service-test.ts && tsx scripts/membership-pglite-test.ts",
+    "test:memberships": "tsx scripts/membership-domain-test.ts && tsx scripts/membership-service-test.ts && tsx scripts/membership-pglite-test.ts && tsx scripts/membership-session-test.ts",
     "test:memberships-ui": "tsx scripts/membership-browser-test.ts",
     "build": "npm run build:lubricentro && npm run build:glow",
     "build:glow": "npm --prefix sites/peluqueria-glow-web ci --include=dev && npm --prefix sites/peluqueria-glow-web run build",

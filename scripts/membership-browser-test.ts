@@ -24,7 +24,12 @@ const requests=[];const errors=[];window.addEventListener('error',e=>errors.push
 for(const name of ['alert','confirm','prompt'])window[name]=()=>{throw new Error('Dialogo nativo prohibido: '+name)};
 const requestCrmConfirmation=(message,options)=>new Promise(resolve=>{const d=document.getElementById('confirmation-dialog');document.getElementById('confirm-title').textContent=options.title;document.getElementById('confirm-message').textContent=message;document.getElementById('confirm-accept').textContent=options.confirmLabel;d.hidden=false;document.getElementById('confirm-accept').onclick=()=>{d.hidden=true;resolve(true)};document.getElementById('confirm-cancel').onclick=()=>{d.hidden=true;resolve(false)}});
 const plans=[{id:'silver',name:'Plata',kind:'MEMBERSHIP',price:50000,validityDays:30,isActive:true,cancellationHours:24,serviceRules:[{serviceId:'cut',name:'Corte',uses:2,unitPrice:25000}]},{id:'gold',name:'Oro',kind:'MEMBERSHIP',price:80000,validityDays:30,isActive:true,cancellationHours:24,serviceRules:[{serviceId:'cut',name:'Corte',uses:4,unitPrice:20000}]}];
-async function getJson(url,options){const path=url.split('?')[0];if(options){const body=JSON.parse(options.body);requests.push({path,body});if(path==='/benefit-plans'){const plan={id:'new',...body,isActive:true,serviceRules:body.serviceRules.map(r=>({...r,name:state.services.find(s=>s.id===r.serviceId).name,unitPrice:r.pricingMode==='FIXED'?r.fixedPrice:Math.round(state.services.find(s=>s.id===r.serviceId).price*(100-r.discountPercent)/100)}))};plans.push(plan);return plan}return {id:'purchase'}}if(path==='/benefit-plans')return plans;if(path.includes('/benefits'))return [{id:'grant',planId:'silver',name:'Plata',startsOn:'2027-01-01',endsOn:'2027-01-30',used:1,reserved:0,available:1,serviceBalances:[{name:'Corte',used:1,reserved:0,available:1}]}];if(path==='/cash-register/payment-context')return {session:{id:'session'}};if(path==='/cash-register/payment-methods')return [{id:'cash',name:'Efectivo'}];return []}
+let failCatalog = false;
+async function getJson(url, options) {
+  if (failCatalog && !options && url.startsWith('/benefit-plans?')) throw new Error('Error temporal de prueba');
+  return fixtureJson(url, options);
+}
+async function fixtureJson(url,options){const path=url.split('?')[0];if(options){const body=JSON.parse(options.body);requests.push({path,body});if(path==='/benefit-plans'){const plan={id:'new',...body,isActive:true,serviceRules:body.serviceRules.map(r=>({...r,name:state.services.find(s=>s.id===r.serviceId).name,unitPrice:r.pricingMode==='FIXED'?r.fixedPrice:Math.round(state.services.find(s=>s.id===r.serviceId).price*(100-r.discountPercent)/100)}))};plans.push(plan);return plan}return {id:'purchase'}}if(path==='/benefit-plans')return plans;if(path.includes('/benefits'))return [{id:'grant',planId:'silver',name:'Plata',startsOn:'2027-01-01',endsOn:'2027-01-30',used:1,reserved:0,available:1,serviceBalances:[{name:'Corte',used:1,reserved:0,available:1}]}];if(path==='/cash-register/payment-context')return {session:{id:'session'}};if(path==='/cash-register/payment-methods')return [{id:'cash',name:'Efectivo'}];return []}
 ${bookingProgramsScript}
 window.ready=true;
 </script></body></html>`
@@ -55,6 +60,14 @@ try {
     await new Promise(resolve => requestAnimationFrame(resolve))
     return !bpRoot.hidden && Boolean(bpBody.querySelector('#bp-plan-form')) && !bpBody.querySelector('#bp-purchase-form')
   })()`)
+  await evaluate('failCatalog = true')
+  assert.equal(await openCatalog('services-memberships'), false)
+  assert.match(await evaluate('bpBody.textContent'), /No se pudo cargar/)
+  assert.doesNotMatch(await evaluate('bpBody.textContent'), /Cargando/)
+  assert.match(await evaluate("document.getElementById('bp-feedback').textContent"), /Error temporal de prueba/)
+  await evaluate("(async () => { failCatalog = false; bpBody.querySelector('[data-bp-retry]').click(); await new Promise(resolve => requestAnimationFrame(resolve)) })()")
+  assert.ok(await evaluate("bpBody.querySelector('#bp-plan-form') !== null"), 'Reintentar vuelve a abrir el catalogo')
+  await evaluate('bpClose()')
   assert.ok(await openCatalog('services-memberships'), 'Servicios abre el catálogo para crear planes')
   await evaluate("document.getElementById('bp-plan-editor').open=true")
   const metrics=()=>evaluate<{width:number;height:number;font:number;input:number;title:number;padding:number;button:number;rowPadding:number;gap:number}>(`(()=>{const d=document.querySelector('.bp-dialog'),i=document.querySelector('#bp-plan-form input'),h=document.querySelector('#bp-title');return {width:d.getBoundingClientRect().width,height:d.getBoundingClientRect().height,font:parseFloat(getComputedStyle(i).fontSize),input:i.getBoundingClientRect().height,title:parseFloat(getComputedStyle(h).fontSize),padding:parseFloat(getComputedStyle(document.getElementById('bp-body')).paddingTop),button:document.querySelector('[data-bp-close]').getBoundingClientRect().height,rowPadding:parseFloat(getComputedStyle(document.querySelector('[data-bp-service] td')).paddingTop),gap:parseFloat(getComputedStyle(document.querySelector('#bp-plan-form .bp-grid')).gap)}})()`)

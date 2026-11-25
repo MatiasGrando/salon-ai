@@ -98,6 +98,10 @@ function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
     || /^\/service-categories\/[^/]+$/.test(path)
     || path === '/services'
     || /^\/services\/[^/]+(?:\/status)?$/.test(path)
+    || (['GET', 'POST'].includes(method) && path === '/benefit-plans')
+    || (method === 'PUT' && /^\/benefit-plans\/[^/]+$/.test(path))
+    || (method === 'GET' && /^\/customers\/[^/]+\/benefits$/.test(path))
+    || (method === 'POST' && /^\/customer-benefits(?:\/(?:apply|quote))?$/.test(path))
     || (['GET', 'HEAD', 'POST'].includes(method) && ['/product-categories', '/products'].includes(path))
     || (method === 'PATCH' && /^\/(?:product-categories|products)\/[^/]+$/.test(path))
     || (method === 'POST' && path === '/product-sales')
@@ -373,6 +377,8 @@ const internalRouteRoots = new Set([
   'appointments',
   'auth',
   'availability',
+  'availability-weeks',
+  'benefit-plans',
   'businesses',
   'business-hours',
   'campaign-customer-options',
@@ -382,6 +388,7 @@ const internalRouteRoots = new Set([
   'cash-register',
   'chat',
   'crm',
+  'customer-benefits',
   'customers',
   'health',
   'product-categories',
@@ -392,6 +399,7 @@ const internalRouteRoots = new Set([
   'post-sale',
   'pipeline',
   'public',
+  'recurring-bookings',
   'reminder-automations',
   'reports',
   'schedule-blocks',
