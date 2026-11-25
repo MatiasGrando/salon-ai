@@ -33,7 +33,13 @@ export function createPrismaClient(options: PrismaClientPoolOptions) {
     instrumentPrismaPool(pool, diagnostics.role, diagnostics.emit)
     return new PrismaPg(pool, { disposeExternalPool: true }).connect()
   }
-  const client = new PrismaClient(transactionOptions === undefined ? { adapter } : { adapter, transactionOptions })
+  const client = new PrismaClient({
+    adapter,
+    transactionOptions: {
+      ...transactionOptions,
+      timeout: transactionOptions?.timeout ?? 30_000
+    }
+  })
   diagnosticControls.set(client, options => {
     if (started || diagnostics || !['worker', 'ingress'].includes(options.role)) return false
     diagnostics = { role: options.role, emit: options.emit }
