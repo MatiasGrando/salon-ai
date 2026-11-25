@@ -44,7 +44,7 @@ export class CustomerBenefitsService {
       await lockBenefitBusiness(tx, businessId)
       const services = await tx.service.findMany({ where: { businessId, id: { in: input.serviceIds }, isActive: true }, select: { id: true, name: true, price: true, priceMode: true } })
       if (services.length !== input.serviceIds.length) fail('INVALID_SERVICES', 'Hay servicios que no pertenecen al comercio o estan inactivos.')
-      const priced = perService ? priceMembership(input.serviceRules!, services, input.price) : null
+      const priced = perService ? priceMembership(input.serviceRules!, services) : null
       const data = { name: input.name.trim(), kind: input.kind, serviceIds: input.serviceIds, serviceRules: priced?.rules ?? [], totalUses: input.totalUses, discountPercent: input.totalUses !== null ? 100 : input.discountPercent,
         price: input.price, validityDays: input.validityDays, cancellationHours: input.cancellationHours, consumeLateCancellation: input.consumeLateCancellation, consumeNoShow: input.consumeNoShow, isActive: input.isActive ?? true }
       if (id && !await tx.benefitPlan.findFirst({ where: { businessId, id } })) fail('PLAN_NOT_FOUND', 'No encontre ese plan.')

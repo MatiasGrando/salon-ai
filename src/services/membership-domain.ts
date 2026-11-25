@@ -18,7 +18,7 @@ export function validateMembershipItems(value: unknown): asserts value is Member
     ids.add(item.serviceId)
   }
 }
-export function priceMembership(items: MembershipServiceInput[], services: Array<{ id: string; name: string; price: number | null; priceMode: string }>, expectedPrice: number) {
+export function priceMembership(items: MembershipServiceInput[], services: Array<{ id: string; name: string; price: number | null; priceMode: string }>) {
   validateMembershipItems(items)
   const rules = items.map(item => {
     const service = services.find(s => s.id === item.serviceId)
@@ -28,9 +28,10 @@ export function priceMembership(items: MembershipServiceInput[], services: Array
     return { serviceId: item.serviceId, name: service.name, uses: item.uses, pricingMode: item.pricingMode, fixedPrice: item.pricingMode === 'FIXED' ? unitPrice : null, discountPercent: item.pricingMode === 'PERCENTAGE' ? item.discountPercent! : null, listPrice, unitPrice }
   })
   const totalUses = rules.reduce((sum, row) => sum + row.uses, 0)
-  const price = rules.reduce((sum, row) => sum + row.uses * row.unitPrice, 0)
-  if (!integer(totalUses, 1, 10000) || !integer(price, 1) || price !== expectedPrice) invalid('El precio de la membresia debe coincidir con la suma de cantidades por precio de cada servicio.')
-  return { rules, price, totalUses }
+  const commissionBase = rules.reduce((sum, row) => sum + row.uses * row.unitPrice, 0)
+  if (!integer(totalUses, 1, 10000)) invalid('La membresia admite hasta 10000 usos en total.')
+  if (!integer(commissionBase, 0)) invalid('La base total para comisiones supera el importe maximo permitido.')
+  return { rules, totalUses }
 }
 export function membershipEnd(startsOn: string, validityDays: number) { return addDateDays(startsOn, validityDays - 1) }
 

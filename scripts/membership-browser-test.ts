@@ -24,9 +24,17 @@ const requests=[];const errors=[];window.addEventListener('error',e=>errors.push
 for(const name of ['alert','confirm','prompt'])window[name]=()=>{throw new Error('Dialogo nativo prohibido: '+name)};
 const requestCrmConfirmation=(message,options)=>new Promise(resolve=>{const d=document.getElementById('confirmation-dialog');document.getElementById('confirm-title').textContent=options.title;document.getElementById('confirm-message').textContent=message;document.getElementById('confirm-accept').textContent=options.confirmLabel;d.hidden=false;document.getElementById('confirm-accept').onclick=()=>{d.hidden=true;resolve(true)};document.getElementById('confirm-cancel').onclick=()=>{d.hidden=true;resolve(false)}});
 const plans=[{id:'silver',name:'Plata',kind:'MEMBERSHIP',price:50000,validityDays:30,isActive:true,cancellationHours:24,serviceRules:[{serviceId:'cut',name:'Corte',uses:2,unitPrice:25000}]},{id:'gold',name:'Oro',kind:'MEMBERSHIP',price:80000,validityDays:30,isActive:true,cancellationHours:24,serviceRules:[{serviceId:'cut',name:'Corte',uses:4,unitPrice:20000}]}];
-let failCatalog = false;
+let crmWorkspaceVersion = 0;
+let catalogReads = 0, balanceReads = 0, failCatalog = false, pendingCatalog = null;
 async function getJson(url, options) {
-  if (failCatalog && !options && url.startsWith('/benefit-plans?')) throw new Error('Error temporal de prueba');
+  if (!options && url.startsWith('/benefit-plans?')) {
+    catalogReads++;
+    if (failCatalog) throw new Error('Error temporal de prueba');
+    if (pendingCatalog) await pendingCatalog;
+    const businessId = new URLSearchParams(url.split('?')[1]).get('businessId');
+    return businessId === 'b' ? structuredClone(plans) : [];
+  }
+  if (url.startsWith('/customers/c/benefits?')) balanceReads++;
   return fixtureJson(url, options);
 }
 async function fixtureJson(url,options){const path=url.split('?')[0];if(options){const body=JSON.parse(options.body);requests.push({path,body});if(path==='/benefit-plans'){const plan={id:'new',...body,isActive:true,serviceRules:body.serviceRules.map(r=>({...r,name:state.services.find(s=>s.id===r.serviceId).name,unitPrice:r.pricingMode==='FIXED'?r.fixedPrice:Math.round(state.services.find(s=>s.id===r.serviceId).price*(100-r.discountPercent)/100)}))};plans.push(plan);return plan}return {id:'purchase'}}if(path==='/benefit-plans')return plans;if(path.includes('/benefits'))return [{id:'grant',planId:'silver',name:'Plata',startsOn:'2027-01-01',endsOn:'2027-01-30',used:1,reserved:0,available:1,serviceBalances:[{name:'Corte',used:1,reserved:0,available:1}]}];if(path==='/cash-register/payment-context')return {session:{id:'session'}};if(path==='/cash-register/payment-methods')return [{id:'cash',name:'Efectivo'}];return []}
@@ -69,6 +77,7 @@ try {
   assert.ok(await evaluate("bpBody.querySelector('#bp-plan-form') !== null"), 'Reintentar vuelve a abrir el catalogo')
   await evaluate('bpClose()')
   assert.ok(await openCatalog('services-memberships'), 'Servicios abre el catálogo para crear planes')
+  assert.equal(await evaluate('catalogReads'), 2, 'Reabrir desde Servicios reutiliza la carga exitosa')
   await evaluate("document.getElementById('bp-plan-editor').open=true")
   const metrics=()=>evaluate<{width:number;height:number;font:number;input:number;title:number;padding:number;button:number;rowPadding:number;gap:number}>(`(()=>{const d=document.querySelector('.bp-dialog'),i=document.querySelector('#bp-plan-form input'),h=document.querySelector('#bp-title');return {width:d.getBoundingClientRect().width,height:d.getBoundingClientRect().height,font:parseFloat(getComputedStyle(i).fontSize),input:i.getBoundingClientRect().height,title:parseFloat(getComputedStyle(h).fontSize),padding:parseFloat(getComputedStyle(document.getElementById('bp-body')).paddingTop),button:document.querySelector('[data-bp-close]').getBoundingClientRect().height,rowPadding:parseFloat(getComputedStyle(document.querySelector('[data-bp-service] td')).paddingTop),gap:parseFloat(getComputedStyle(document.querySelector('#bp-plan-form .bp-grid')).gap)}})()`)
   const initial=await metrics()
@@ -81,13 +90,16 @@ try {
   await evaluate('bpClose()')
   assert.equal(await evaluate('document.activeElement.id'), 'services-memberships')
   assert.ok(await openCatalog('customers-memberships'), 'Clientes conserva el acceso al mismo catálogo')
+  assert.equal(await evaluate('catalogReads'), 2, 'El catálogo es compartido con Clientes')
   await delay(80)
   assert.equal(Math.round((await metrics()).width),1200,'reapertura conserva ancho')
   assert.equal(Math.round((await metrics()).height),850,'reapertura conserva alto')
-  await evaluate("document.getElementById('bp-plan-editor').open=true;const f=document.getElementById('bp-plan-form');f.elements.name.value='Plata';f.elements.price.value='50000';const row=document.querySelector('[data-bp-service=\"cut\"]');row.querySelector('[data-bp-uses]').value='2';row.querySelector('[data-bp-value]').value='25000';row.querySelector('[data-bp-value]').dispatchEvent(new Event('input',{bubbles:true}));f.requestSubmit()")
+  await evaluate("document.getElementById('bp-plan-editor').open=true;const f=document.getElementById('bp-plan-form');f.elements.name.value='Tres cortes';f.elements.price.value='34999';const row=document.querySelector('[data-bp-service=\"cut\"]');row.querySelector('[data-bp-uses]').value='3';row.querySelector('[data-bp-value]').value='10000';row.querySelector('[data-bp-value]').dispatchEvent(new Event('input',{bubbles:true}));f.requestSubmit()")
   await delay(100)
   const posted=await evaluate('requests.find(r=>r.path==="/benefit-plans").body')
-  assert.equal(posted.price,50000);assert.equal(posted.serviceRules[0].uses,2);assert.equal(posted.serviceRules[0].fixedPrice,25000)
+  assert.equal(posted.price,34999);assert.equal(posted.serviceRules[0].uses,3);assert.equal(posted.serviceRules[0].fixedPrice,10000)
+  assert.match(await evaluate("document.getElementById('bp-plan-rows').textContent"), /Tres cortes/)
+  assert.equal(await evaluate('catalogReads'), 2, 'Guardar incorpora el plan sin volver a pedir el catálogo')
   await evaluate("document.getElementById('bp-plan-editor').open=true;document.getElementById('bp-plan-form').scrollIntoView()");await delay(80)
   await send('Page.captureScreenshot',{format:'png'}).then(r=>writeFile(join(output,'desktop.png'),Buffer.from(r.data,'base64')))
   for(const [width,height] of [[320,568],[390,844],[768,640],[1500,1100]] as const){
@@ -116,6 +128,22 @@ try {
   assert.equal(confirmation.label,'Confirmar cobro')
   await evaluate("document.getElementById('confirm-accept').click()");await delay(100)
   assert.equal((await evaluate('requests.find(r=>r.path==="/customer-benefits").body')).planId,'gold')
+  assert.equal(await evaluate('balanceReads'), 2, 'Abrir la ficha y registrar compra consultan el saldo actualizado')
+  assert.equal(await evaluate('catalogReads'), 2)
+  await evaluate('bpClose(); bpCatalogCache.expiresAt = 0; let finishCatalog; pendingCatalog = new Promise(resolve => { finishCatalog = resolve }); void 0')
+  assert.ok(await openCatalog('services-memberships'), 'La actualización mantiene visible el catálogo')
+  assert.doesNotMatch(await evaluate('bpBody.textContent'), /Cargando/)
+  await evaluate('bpClose()')
+  assert.ok(await openCatalog('customers-memberships'), 'Reabrir mientras se actualiza mantiene visible el catálogo')
+  assert.equal(await evaluate('catalogReads'), 3, 'La actualización en curso se comparte')
+  await evaluate("document.getElementById('bp-plan-editor').open = true; document.querySelector('#bp-plan-form [name=name]').value = 'Borrador'; plans[0].name = 'Plata renovada'; finishCatalog(); pendingCatalog = null")
+  await delay(100)
+  assert.match(await evaluate("document.getElementById('bp-plan-rows').textContent"), /Plata renovada/)
+  assert.equal(await evaluate("document.querySelector('#bp-plan-form [name=name]').value"), 'Borrador')
+  await evaluate("bpClose(); state.businessId = 'otro'; crmWorkspaceVersion++")
+  assert.ok(await openCatalog('services-memberships'))
+  assert.doesNotMatch(await evaluate("document.getElementById('bp-plan-rows').textContent"), /Plata renovada/)
+  assert.equal(await evaluate('catalogReads'), 4, 'Otro comercio carga su propio catálogo')
   assert.deepEqual(await evaluate('errors'),[])
   console.log('OK interfaz real: crear plan, compra, saldos, escala horizontal/vertical/combinada, reapertura y movil. Capturas: '+output)
 } finally {socket?.close();child.kill()}

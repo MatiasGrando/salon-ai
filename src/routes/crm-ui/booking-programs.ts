@@ -69,6 +69,8 @@ export const bookingProgramsScript = String.raw`
     const bpDialog = bpRoot.querySelector('.bp-dialog')
     const bpBody = document.getElementById('bp-body')
     let bpCustomer = null, bpBusiness = null, bpTab = 'week', bpRevision = 0, bpRules = [], bpPlans = [], bpGrants = [], bpBusy = false, bpOpener = null, bpLoadVersion = 0
+    const bpCatalogFreshMs = 60_000
+    let bpCatalogCache = null
     const bpEscape = value => escapeHtml(String(value ?? ''))
     const bpToday = () => new Date().toLocaleDateString('en-CA', { timeZone: state.business?.timezone || 'America/Argentina/Buenos_Aires' })
     function bpDateAdd(date, days) { return new Date(Date.parse(date) + days * 86400000).toISOString().slice(0,10) }
@@ -77,6 +79,26 @@ export const bookingProgramsScript = String.raw`
     function bpPath(path, params = {}) { const q = new URLSearchParams({ ...params, businessId: bpBusiness }); return path + '?' + q.toString() }
     async function bpRead(path, params) { const business = bpBusiness; const result = await getJson(bpPath(path, params)); if (business !== state.businessId || business !== bpBusiness) throw new Error('El comercio cambio. Reabri la ventana.'); return result }
     async function bpWrite(path, data, method = 'POST') { const business = bpBusiness; const result = await getJson(path, { method, headers: { 'Content-Type':'application/json' }, body:JSON.stringify({ ...data, businessId:business }) }); if (business !== state.businessId || business !== bpBusiness) throw new Error('El comercio cambio. Reabri la ventana.'); return result }
+    function bpCatalogIsCurrent(catalog) {
+      return catalog && catalog === bpCatalogCache && catalog.businessId === state.businessId && catalog.workspaceVersion === crmWorkspaceVersion
+    }
+    function bpMembershipCatalog() {
+      if (!bpCatalogIsCurrent(bpCatalogCache)) {
+        bpCatalogCache = { businessId: bpBusiness, workspaceVersion: crmWorkspaceVersion, plans: null, expiresAt: 0, pending: null }
+      }
+      return bpCatalogCache
+    }
+    function bpRefreshCatalog(catalog) {
+      if (catalog.pending) return catalog.pending
+      catalog.pending = bpRead('/benefit-plans').then(plans => {
+        if (bpCatalogIsCurrent(catalog)) {
+          catalog.plans = plans
+          catalog.expiresAt = Date.now() + bpCatalogFreshMs
+        }
+        return plans
+      }).finally(() => { catalog.pending = null })
+      return catalog.pending
+    }
     function bpProfessionals(selected) { return state.professionals.filter(p => p.isActive !== false && (state.currentUser?.role !== 'STAFF' || state.currentUser.agendaScope !== 'OWN' || state.currentUser.professionalId === p.id)).map(p => '<option value="' + bpEscape(p.id) + '"' + (p.id === selected ? ' selected' : '') + '>' + bpEscape(p.name) + '</option>').join('') }
     function bpServices(selected) { return state.services.filter(s => s.isActive !== false).map(s => '<option value="' + bpEscape(s.id) + '"' + (s.id === selected ? ' selected' : '') + '>' + bpEscape(s.name) + '</option>').join('') }
     function bpMoney(value) { return Number(value || 0).toLocaleString('es-AR', { style:'currency', currency:'ARS', maximumFractionDigits:0 }) }
@@ -106,7 +128,10 @@ export const bookingProgramsScript = String.raw`
       document.getElementById('bp-plan-submit').hidden = true
       document.getElementById('bp-context').textContent = bpCustomer ? bpCustomer.name : state.business?.name || ''
       bpRoot.querySelectorAll('[data-bp-tab]').forEach(b => { b.setAttribute('aria-selected', String(b.dataset.bpTab === bpTab)); b.hidden = (bpTab === 'benefits' && b.dataset.bpTab !== 'benefits') || b.dataset.bpTab === 'benefits' && !bpCanFinance() })
-      bpBody.innerHTML = '<p>Cargando...</p>'; bpFeedback('')
+      const catalog = bpTab === 'benefits' ? bpMembershipCatalog() : null
+      const showCachedCatalog = catalog !== null && catalog.plans !== null && !bpCustomer
+      if (!showCachedCatalog) bpBody.innerHTML = '<p>Cargando...</p>'
+      bpFeedback('')
       try {
         if (bpTab === 'week') {
           bpBody.innerHTML = '<section class="bp-section"><h3>Horarios del profesional</h3><div class="bp-grid"><label>Profesional<select id="bp-professional">' + bpProfessionals(document.getElementById('agenda-professional')?.value) + '</select></label><label>Semana<input type="date" id="bp-week" value="' + bpMonday(bpToday()) + '"></label><label>Modalidad<select id="bp-mode"><option value="HABITUAL">Horario habitual</option><option value="MANUAL">Publicacion manual</option></select></label><div><p class="bp-copy">La publicacion manual habilita solo fechas publicadas. Las reservas existentes se conservan.</p><button type="button" data-bp-action="mode">Guardar modalidad</button></div></div></section><section class="bp-section"><h3>Franjas por fecha</h3><p class="bp-copy" id="bp-week-status"></p><div class="bp-table-wrap"><table><thead><tr><th>Fecha</th><th>Horarios de atencion</th></tr></thead><tbody id="bp-hours"></tbody></table></div><div class="bp-actions"><button type="button" data-bp-action="copy">Copiar semana anterior</button><button type="button" data-bp-action="draft">Guardar borrador</button><button type="button" data-bp-action="preview">Revisar antes de publicar</button><button type="button" class="bp-primary" data-bp-action="publish">Publicar horarios</button></div><div id="bp-summary"></div></section>'
@@ -118,33 +143,54 @@ export const bookingProgramsScript = String.raw`
           bpBody.innerHTML = '<section class="bp-section"><h3>Repetir turno</h3><form id="bp-recurring-form" novalidate><div class="bp-grid">' + bpCustomerField() + '<label>Profesional<select name="professionalId">' + bpProfessionals() + '</select></label><label>Servicio<select name="serviceId">' + bpServices() + '</select></label><label>Primera fecha<input type="date" name="startsOn" value="' + bpToday() + '" required></label><label>Horario<input type="time" name="time" value="18:00" required></label><label>Frecuencia<select name="frequency"><option value="WEEKLY">Semanal</option><option value="FORTNIGHTLY">Cada dos semanas</option><option value="MONTHLY">Mensual (mismo dia del mes)</option></select></label><label>Ultima fecha (opcional)<input type="date" name="endsOn"></label><label class="bp-check"><input type="checkbox" name="useBenefits"> Requiere cobertura de pack o membresia</label></div><p class="bp-copy">La regla se conserva aunque la semana no este publicada. Pausar o terminar detiene la generacion; los turnos ya confirmados se gestionan desde Agenda.</p><div class="bp-actions"><button class="bp-primary" type="submit">Crear repeticion</button><button type="button" data-bp-action="refresh">Reintentar conflictos</button></div></form></section><section class="bp-section"><h3>Repeticiones e incidencias</h3><div class="bp-table-wrap"><table><thead><tr><th>Cliente / servicio</th><th>Frecuencia</th><th>Estado / acciones</th></tr></thead><tbody>' + (bpRules.map(r => '<tr><td>' + bpEscape(r.customer.name) + '<br>' + bpEscape(r.service.name) + ' / ' + bpEscape(r.professional.name) + '</td><td>' + bpEscape(({WEEKLY:'Semanal',FORTNIGHTLY:'Quincenal',MONTHLY:'Mensual'})[r.frequency]) + '<br>' + bpEscape(r.startsOn) + ' / ' + bpEscape(r.time) + '</td><td>' + bpEscape(({ACTIVE:'Activa',PAUSED:'Pausada',ENDED:'Finalizada'})[r.status]) + (r.status !== 'ENDED' ? '<div class="bp-actions"><button data-bp-rule="' + bpEscape(r.id) + '" data-bp-status="' + (r.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE') + '">' + (r.status === 'ACTIVE' ? 'Pausar' : 'Retomar') + '</button><button data-bp-rule="' + bpEscape(r.id) + '" data-bp-status="ENDED">Terminar</button></div>' : '') + r.occurrences.map(o => '<p>' + bpEscape(o.date) + ': ' + bpEscape(o.conflict) + ' <button data-bp-skip="' + bpEscape(r.id) + '" data-bp-date="' + bpEscape(o.date) + '">Saltar fecha</button></p>').join('') + '</td></tr>').join('') || '<tr><td colspan="3">Todavia no hay repeticiones.</td></tr>') + '</tbody></table></div></section>'
           return
         }
-        bpPlans = await bpRead('/benefit-plans')
-        bpGrants = bpCustomer ? await bpRead('/customers/' + encodeURIComponent(bpCustomer.id) + '/benefits') : []
-        if (version !== bpLoadVersion) return
+        if (showCachedCatalog) {
+          bpPlans = catalog.plans
+          bpGrants = []
+        } else {
+          const [plans, grants] = await Promise.all([
+            catalog.expiresAt > Date.now() ? catalog.plans : bpRefreshCatalog(catalog),
+            bpCustomer ? bpRead('/customers/' + encodeURIComponent(bpCustomer.id) + '/benefits') : []
+          ])
+          if (version !== bpLoadVersion || !bpCatalogIsCurrent(catalog)) return
+          bpPlans = plans
+          bpGrants = grants
+        }
         bpBody.innerHTML = '<section class="bp-section"><h3>Beneficios' + (bpCustomer ? ' de ' + bpEscape(bpCustomer.name) : '') + '</h3><p class="bp-copy">Cada compra conserva sus condiciones. Los usos vencen segun la fecha de atencion; reservar no extiende la vigencia.</p>' + (bpCustomer ? '<div class="bp-table-wrap"><table><thead><tr><th>Beneficio</th><th>Vigencia</th><th>Usos</th></tr></thead><tbody>' + (bpGrants.map(g => '<tr><td>' + bpEscape(g.name) + '<br>' + (g.revoked ? 'Compra revertida' : g.expired ? 'Vencido' : g.startsOn > bpToday() ? 'Comienza el ' + bpEscape(g.startsOn) : 'Vigente') + '</td><td>' + bpEscape(g.startsOn) + '<br>' + bpEscape(g.endsOn) + '</td><td>' + ((g.serviceBalances || []).length ? g.serviceBalances.map(r => bpEscape(r.name) + ': ' + r.used + ' usados / ' + r.reserved + ' reservados / ' + r.available + ' disponibles').join('<br>') : g.used + ' utilizados / ' + g.reserved + ' reservados / ' + (g.available === null ? 'sin limite' : g.available + ' disponibles')) + '</td></tr>').join('') || '<tr><td colspan="3">Sin compras registradas.</td></tr>') + '</tbody></table></div>' : '<p>Abr&iacute; Membres&iacute;as desde la ficha del cliente para registrar su compra y ver sus usos.</p>') + '</section>' + (bpCustomer ? '<section class="bp-section"><h3>Comprar pack o renovar membresia</h3><form id="bp-purchase-form" novalidate><div class="bp-grid"><label>Plan<select name="planId" id="bp-purchase-plan" required><option value="">Seleccionar plan</option>' + bpPlans.filter(p => p.isActive).map(p => '<option value="' + bpEscape(p.id) + '">' + bpEscape(p.name) + ' / ' + bpMoney(p.price) + '</option>').join('') + '</select></label><label>Inicio del periodo<input type="date" name="startsOn" value="' + bpToday() + '"></label><label>Medio de pago<select name="paymentMethodId" id="bp-purchase-method" required><option value="">Cargando medios de pago...</option></select></label></div><p class="bp-copy" id="bp-purchase-terms">Selecciona un plan para revisar sus condiciones antes de cobrar.</p><div class="bp-actions"><button type="submit" class="bp-primary">Registrar compra y cobro en Caja</button></div></form></section><section class="bp-section"><h3>Aplicar a un turno</h3><form id="bp-apply-form" novalidate><div class="bp-grid"><label>Beneficio<select name="benefitId">' + bpGrants.filter(g => !g.revoked && !g.expired).map(g => '<option value="' + bpEscape(g.id) + '">' + bpEscape(g.name) + ' / vence ' + bpEscape(g.endsOn) + '</option>').join('') + '</select></label><label>Turno pendiente<select name="appointmentId" id="bp-benefit-appointment"></select></label></div><p class="bp-copy">Los servicios incluidos ya est&aacute;n pagados. Se aparta un uso por servicio; los servicios adicionales se cobran normalmente.</p><div class="bp-actions"><button type="submit">Aplicar beneficio al turno</button></div></form></section>' : '') + bpPlanForm()
         if (bpCustomer) {
           const [context, appointments, methods] = await Promise.all([bpRead('/cash-register/payment-context'), bpRead('/appointments', { customerId:bpCustomer.id }), bpRead('/cash-register/payment-methods')])
-          if (version !== bpLoadVersion) return
+          if (version !== bpLoadVersion || !bpCatalogIsCurrent(catalog)) return
           document.getElementById('bp-purchase-form').dataset.session = context.current?.session?.id || context.session?.id || ''
           document.getElementById('bp-purchase-method').innerHTML = methods.filter(m => m.isActive !== false).map(m => '<option value="' + bpEscape(m.id) + '">' + bpEscape(m.name) + '</option>').join('')
           document.getElementById('bp-benefit-appointment').innerHTML = appointments.filter(a => ['PENDING','CONFIRMED'].includes(a.status) && new Date(a.startAt) > new Date()).map(a => '<option value="' + bpEscape(a.id) + '">' + bpEscape(new Date(a.startAt).toLocaleString('es-AR')) + ' / ' + bpEscape(a.service?.name || '') + '</option>').join('')
+        } else if (showCachedCatalog && catalog.expiresAt <= Date.now()) {
+          try {
+            const plans = await bpRefreshCatalog(catalog)
+            if (version !== bpLoadVersion || !bpCatalogIsCurrent(catalog)) return
+            bpPlans = plans
+            document.getElementById('bp-plan-rows').innerHTML = bpPlanRows()
+          } catch (error) {
+            if (version === bpLoadVersion && bpCatalogIsCurrent(catalog)) bpFeedback(error.message, true)
+          }
         }
       } catch (error) {
-        if (version !== bpLoadVersion) return
+        if (version !== bpLoadVersion || (catalog && !bpCatalogIsCurrent(catalog))) return
         document.getElementById('bp-plan-submit').hidden = true
         bpBody.innerHTML = '<section class="bp-section"><p>No se pudo cargar esta secci&oacute;n.</p><button type="button" data-bp-retry>Reintentar</button></section>'
         bpFeedback(error.message, true)
       }
     }
     function bpCustomerField() { return bpCustomer ? '<input name="customerId" type="hidden" value="' + bpEscape(bpCustomer.id) + '"><label>Cliente<input value="' + bpEscape(bpCustomer.name) + '" disabled></label>' : '<label>Buscar cliente<input id="bp-customer-search" type="search" placeholder="Nombre o telefono"><select name="customerId" id="bp-customer-results"><option value="">Busca y selecciona un cliente</option></select></label>' }
-    function bpServiceTerms(plan) {
-      return (plan.serviceRules || []).map(r => r.uses + ' x ' + r.name + ' (' + bpMoney(r.unitPrice) + ' por servicio)').join(' / ') || (plan.totalUses === null ? plan.discountPercent + '% de descuento' : plan.totalUses + ' usos compartidos')
+    function bpServiceTerms(plan, showCommissionBase = false) {
+      return (plan.serviceRules || []).map(r => r.uses + ' x ' + r.name + (showCommissionBase ? ' (' + bpMoney(r.unitPrice) + ' de base por uso)' : '')).join(' / ') || (plan.totalUses === null ? plan.discountPercent + '% de descuento' : plan.totalUses + ' usos compartidos')
     }
     function bpServiceRows() {
       return state.services.filter(s => s.isActive !== false && (s.priceMode || 'FIXED') === 'FIXED' && s.price !== null).map(s => '<tr data-bp-service="' + bpEscape(s.id) + '" data-list-price="' + Number(s.price) + '"><td><strong>' + bpEscape(s.name) + '</strong><p class="bp-copy">Habitual: ' + bpMoney(s.price) + '</p></td><td><input data-bp-uses type="number" min="0" max="10000" step="1" value="0" aria-label="Cantidad de ' + bpEscape(s.name) + '"></td><td><select data-bp-pricing aria-label="Valor de ' + bpEscape(s.name) + '"><option value="FIXED">Precio fijo</option><option value="PERCENTAGE">Descuento %</option></select></td><td><input data-bp-value type="number" min="0" step="1" value="' + Number(s.price) + '" aria-label="Precio o porcentaje de ' + bpEscape(s.name) + '"></td><td data-bp-unit>' + bpMoney(s.price) + '</td><td data-bp-subtotal>' + bpMoney(0) + '</td></tr>').join('')
     }
+    function bpPlanRows() {
+      return bpPlans.map(p => '<tr><td>' + bpEscape(p.name) + (p.isActive ? '' : ' (inactivo)') + '</td><td>' + bpEscape(bpServiceTerms(p, true)) + '</td><td>' + p.validityDays + ' d&iacute;as</td><td>' + bpMoney(p.price) + '</td></tr>').join('') || '<tr><td colspan="4">Cre&aacute; tu primera membres&iacute;a.</td></tr>'
+    }
     function bpPlanForm() {
-      return '<section class="bp-section"><h3>Membres&iacute;as y packs</h3><div class="bp-table-wrap"><table><thead><tr><th>Plan</th><th>Servicios pagados</th><th>Vigencia</th><th>Precio</th></tr></thead><tbody>' + (bpPlans.map(p => '<tr><td>' + bpEscape(p.name) + (p.isActive ? '' : ' (inactivo)') + '</td><td>' + bpEscape(bpServiceTerms(p)) + '</td><td>' + p.validityDays + ' d&iacute;as</td><td>' + bpMoney(p.price) + '</td></tr>').join('') || '<tr><td colspan="4">Cre&aacute; tu primera membres&iacute;a.</td></tr>') + '</tbody></table></div>' + (state.currentUser?.role === 'STAFF' ? '' : '<details id="bp-plan-editor"><summary>Crear membres&iacute;a o pack</summary><form id="bp-plan-form" novalidate><h3>Condiciones de compra</h3><div class="bp-grid"><label>Nombre<input name="name" maxlength="120" placeholder="Ej.: Plata" required></label><label>Tipo<select name="kind"><option value="MEMBERSHIP">Membres&iacute;a</option><option value="PACK">Pack</option></select></label><label>Precio total de compra<input name="price" type="number" min="1" max="2147483647" step="1" placeholder="Ej.: 50000" required></label><label>Vigencia en d&iacute;as<input name="validityDays" type="number" min="1" max="3650" step="1" value="30" required></label></div><h3>Servicios incluidos y valor para comisiones</h3><p class="bp-copy">Indic&aacute; los usos de cada servicio. Dejalo en 0 para no incluirlo. El precio fijo o descuento define su valor dentro de la compra y la base para comisionar. El cliente no vuelve a pagarlo.</p><div class="bp-table-wrap"><table class="bp-service-editor"><thead><tr><th>Servicio</th><th>Usos</th><th>Valor</th><th>Importe / %</th><th>Por servicio</th><th>Subtotal</th></tr></thead><tbody>' + bpServiceRows() + '</tbody></table></div><p id="bp-plan-total" class="bp-total" aria-live="polite">Total de servicios: ' + bpMoney(0) + '</p><p class="bp-copy">La suma debe coincidir con el precio de compra. Solo se incluyen servicios con precio definido.</p><details><summary>Cancelaciones y ausencias</summary><div class="bp-grid"><label>Cancelaci&oacute;n sin consumir uso hasta (horas antes)<input name="cancellationHours" type="number" min="0" max="720" value="24" required></label><label class="bp-check"><input name="consumeLateCancellation" type="checkbox"> Consumir uso por cancelaci&oacute;n tard&iacute;a</label><label class="bp-check"><input name="consumeNoShow" type="checkbox"> Consumir uso por ausencia</label></div></details><p class="bp-copy">Los cambios futuros no modifican las compras realizadas.</p></form></details>') + '</section>'
+      return '<section class="bp-section"><h3>Membres&iacute;as y packs</h3><div class="bp-table-wrap"><table><thead><tr><th>Plan</th><th>Servicios incluidos y base de comisi&oacute;n</th><th>Vigencia</th><th>Precio de venta</th></tr></thead><tbody id="bp-plan-rows">' + bpPlanRows() + '</tbody></table></div>' + (state.currentUser?.role === 'STAFF' ? '' : '<details id="bp-plan-editor"><summary>Crear membres&iacute;a o pack</summary><form id="bp-plan-form" novalidate><h3>Condiciones de compra</h3><div class="bp-grid"><label>Nombre<input name="name" maxlength="120" placeholder="Ej.: Plata" required></label><label>Tipo<select name="kind"><option value="MEMBERSHIP">Membres&iacute;a</option><option value="PACK">Pack</option></select></label><label>Precio de venta al cliente<input name="price" type="number" min="1" max="2147483647" step="1" placeholder="Ej.: 50000" required></label><label>Vigencia en d&iacute;as<input name="validityDays" type="number" min="1" max="3650" step="1" value="30" required></label></div><h3>Servicios incluidos y valor para comisiones</h3><p class="bp-copy">Indic&aacute; los usos de cada servicio. Dejalo en 0 para no incluirlo. Eleg&iacute; un importe fijo o un descuento sobre el precio habitual para calcular la base de comisi&oacute;n por uso. La compra cubre todos los usos incluidos.</p><div class="bp-table-wrap"><table class="bp-service-editor"><thead><tr><th>Servicio</th><th>Usos</th><th>Modalidad</th><th>Importe / %</th><th>Base por uso</th><th>Subtotal de base</th></tr></thead><tbody>' + bpServiceRows() + '</tbody></table></div><p id="bp-plan-total" class="bp-total" aria-live="polite">Base total para comisiones: ' + bpMoney(0) + '</p><p class="bp-copy">Caja registra el precio de venta al cliente. Solo se incluyen servicios con precio definido.</p><details><summary>Cancelaciones y ausencias</summary><div class="bp-grid"><label>Cancelaci&oacute;n sin consumir uso hasta (horas antes)<input name="cancellationHours" type="number" min="0" max="720" value="24" required></label><label class="bp-check"><input name="consumeLateCancellation" type="checkbox"> Consumir uso por cancelaci&oacute;n tard&iacute;a</label><label class="bp-check"><input name="consumeNoShow" type="checkbox"> Consumir uso por ausencia</label></div></details><p class="bp-copy">Los cambios futuros no modifican las compras realizadas.</p></form></details>') + '</section>'
     }
     function bpPlanItems() {
       return [...bpBody.querySelectorAll('[data-bp-service]')].filter(r => Number(r.querySelector('[data-bp-uses]').value) > 0).map(r => {
@@ -159,8 +205,7 @@ export const bookingProgramsScript = String.raw`
         const unit = row.querySelector('[data-bp-pricing]').value === 'FIXED' ? value : Math.round(Number(row.dataset.listPrice) * (100 - value) / 100)
         row.querySelector('[data-bp-unit]').textContent = bpMoney(unit); row.querySelector('[data-bp-subtotal]').textContent = bpMoney(unit * quantity); total += unit * quantity
       }
-      const output = document.getElementById('bp-plan-total'); if (output) output.textContent = 'Total de servicios: ' + bpMoney(total)
-      return total
+      const output = document.getElementById('bp-plan-total'); if (output) output.textContent = 'Base total para comisiones: ' + bpMoney(total)
     }
     function bpRange(date, start = '09:00', end = '18:00') { return '<div class="bp-range"><input type="time" data-bp-start value="' + bpEscape(start) + '" aria-label="Inicio ' + date + '"><span>a</span><input type="time" data-bp-end value="' + bpEscape(end) + '" aria-label="Fin ' + date + '"><button type="button" data-bp-remove aria-label="Quitar franja">&times;</button></div>' }
     function bpRenderHours(hours) {
@@ -227,7 +272,29 @@ export const bookingProgramsScript = String.raw`
       if (invalid) { invalid.setAttribute('aria-invalid','true'); invalid.focus(); throw new Error('Revisa el campo resaltado y completa los datos requeridos.') }
       const data = Object.fromEntries(new FormData(form))
       if (form.id === 'bp-recurring-form') { await bpWrite('/recurring-bookings', {...data, endsOn:data.endsOn || null,useBenefits:form.elements.useBenefits.checked}); await bpRender(); bpFeedback('Repeticion creada. Revisa sus incidencias.'); return }
-      if (form.id === 'bp-plan-form') { if (!bpPlanItems().length || bpUpdateTotal() !== Number(data.price)) { form.elements.price.setAttribute('aria-invalid','true'); form.elements.price.focus(); throw new Error('Agrega usos y verifica que la suma de los servicios coincida con el precio de compra.') } await bpWrite('/benefit-plans', {...data, serviceRules:bpPlanItems(), price:Number(data.price),validityDays:Number(data.validityDays),cancellationHours:Number(data.cancellationHours),consumeLateCancellation:form.elements.consumeLateCancellation.checked,consumeNoShow:form.elements.consumeNoShow.checked}); await bpRender(); bpFeedback('Plan creado.'); return }
+      if (form.id === 'bp-plan-form') {
+        const serviceRules = bpPlanItems()
+        if (!serviceRules.length) throw new Error('Agregá al menos un uso a un servicio incluido.')
+        const catalog = bpMembershipCatalog()
+        const savedPlan = await bpWrite('/benefit-plans', {
+          ...data,
+          serviceRules,
+          price: Number(data.price),
+          validityDays: Number(data.validityDays),
+          cancellationHours: Number(data.cancellationHours),
+          consumeLateCancellation: form.elements.consumeLateCancellation.checked,
+          consumeNoShow: form.elements.consumeNoShow.checked
+        })
+        if (!bpCatalogIsCurrent(catalog)) return
+        bpCatalogCache = {
+          ...catalog,
+          pending: null,
+          plans: [...catalog.plans.filter(plan => plan.id !== savedPlan.id), savedPlan].sort((a, b) => a.name.localeCompare(b.name, 'es'))
+        }
+        await bpRender()
+        bpFeedback('Plan creado.')
+        return
+      }
       if (form.id === 'bp-purchase-form') { if (!form.dataset.session) throw new Error('Abri Caja antes de registrar la compra.'); if (!await requestCrmConfirmation('Se registrara el cobro de ' + bpMoney(bpPlans.find(p => p.id === data.planId)?.price) + ' por la membresia elegida y se habilitaran sus servicios pagados.', {title:'Registrar compra',confirmLabel:'Confirmar cobro',danger:false})) return; form.dataset.key ||= crypto.randomUUID(); await bpWrite('/customer-benefits', {...data,customerId:bpCustomer.id,cashSessionId:form.dataset.session,requestKey:form.dataset.key,expectedPrice:bpPlans.find(p => p.id === data.planId)?.price}); await bpRender(); bpFeedback('Compra registrada y beneficio habilitado.'); return }
       if (form.id === 'bp-apply-form') { await bpWrite('/customer-benefits/apply', {...data,customerId:bpCustomer.id}); await bpRender(); bpFeedback('Beneficio aplicado. El uso queda reservado hasta la atencion.'); }
     }) })

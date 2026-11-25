@@ -24,20 +24,21 @@ const tx:any={
 }
 const db={...tx,$transaction:async(work:any)=>work(tx)} as PrismaClient
 const service=new CustomerBenefitsService(db)
-await service.savePlan('b',{name:'Plata',kind:'MEMBERSHIP',serviceRules:[{serviceId:'cut',uses:2,pricingMode:'FIXED',fixedPrice:25000}],price:50000,validityDays:30,cancellationHours:24,consumeLateCancellation:false,consumeNoShow:false} as any)
+await service.savePlan('b',{name:'Plata',kind:'MEMBERSHIP',serviceRules:[{serviceId:'cut',uses:3,pricingMode:'FIXED',fixedPrice:10000}],price:34999,validityDays:30,cancellationHours:24,consumeLateCancellation:false,consumeNoShow:false} as any)
 catalogPrice=90000
 const request={businessId:'b',customerId:'c',planId:'plata',startsOn:'2027-01-01',cashSessionId:'session',paymentMethodId:'cash',requestKey:'purchase-1234'}
 await service.purchase(request)
 assert.equal(purchase.endsOn,'2027-01-30')
-assert.equal(purchase.serviceRules[0].unitPrice,25000,'la compra conserva el precio del plan')
-assert.equal(income.amount,50000)
+assert.equal(purchase.serviceRules[0].unitPrice,10000,'la compra conserva la base de comision por corte')
+assert.equal(purchase.price,34999)
+assert.equal(income.amount,34999,'Caja registra el precio de venta aunque la base total sea $30.000')
 assert.equal(income.expenseCategoryId,'membership-category','los ingresos de Caja requieren una categoria valida')
 await service.purchase(request)
 assert.equal(cashWrites,1,'el replay de compra no cobra dos veces')
 await assert.rejects(()=>service.purchase({...request,startsOn:'2027-02-01'}),{code:'REQUEST_CONFLICT'})
 const applied=await reserveBenefit(tx,{businessId:'b',customerId:'c',appointmentId:'a'})
 assert.equal(applied!.coveredAmount,40000,'bonifica el precio habitual completo, no solo el valor interno')
-assert.equal(applied!.commissionBase,25000)
+assert.equal(applied!.commissionBase,10000)
 assert.deepEqual(discounts,[40000])
 assert.equal(cashWrites,1,'la reserva no genera otro ingreso')
 await reserveBenefit(tx,{businessId:'b',customerId:'c',appointmentId:'a'})
@@ -47,8 +48,10 @@ assert.equal(await reserveBenefit(tx,{businessId:'b',customerId:'c',appointmentI
 appointment={...appointment,id:'second',startAt:new Date('2027-01-30T15:00:00Z'),benefitUse:null}
 await reserveBenefit(tx,{businessId:'b',customerId:'c',appointmentId:'second'})
 appointment={...appointment,id:'third',benefitUse:null}
-assert.equal(await reserveBenefit(tx,{businessId:'b',customerId:'c',appointmentId:'third',optional:true}),null,'cupo agotado no bloquea la reserva habitual')
-await assert.rejects(()=>reserveBenefit(tx,{businessId:'other',customerId:'c',appointmentId:'third'}),{code:'APPOINTMENT_NOT_FOUND'})
+await reserveBenefit(tx,{businessId:'b',customerId:'c',appointmentId:'third'})
+appointment={...appointment,id:'fourth',benefitUse:null}
+assert.equal(await reserveBenefit(tx,{businessId:'b',customerId:'c',appointmentId:'fourth',optional:true}),null,'cupo agotado no bloquea la reserva habitual')
+await assert.rejects(()=>reserveBenefit(tx,{businessId:'other',customerId:'c',appointmentId:'fourth'}),{code:'APPOINTMENT_NOT_FOUND'})
 purchase.serviceIds=[...purchase.serviceIds,'color']
 purchase.serviceRules=[...purchase.serviceRules,{serviceId:'color',name:'Coloracion',uses:1,unitPrice:50000}]
 appointment={...appointment,id:'shared-color',serviceId:'color',service:{price:60000},serviceItems:[{serviceId:'color',price:60000}],quotedPrice:60000,coordinationGroupId:'group'}
