@@ -13,34 +13,63 @@ CREATE TYPE "ProfessionalAccountEntryType" AS ENUM ('EARNING');
 CREATE TYPE "ProfessionalAccountDirection" AS ENUM ('CREDIT');
 CREATE TYPE "AppointmentStatus" AS ENUM ('PENDING','CONFIRMED','COMPLETED','CANCELLED','NO_SHOW');
 CREATE TABLE "Business" (id text PRIMARY KEY, timezone text);
+CREATE TABLE "User" (id text PRIMARY KEY,"businessId" text);
 CREATE TABLE "Customer" (id text PRIMARY KEY,"businessId" text, UNIQUE("businessId",id));
 CREATE TABLE "Professional" (id text PRIMARY KEY,"businessId" text,"commissionMode" "ProfessionalCompensationMode", "commissionPercentage" numeric,"commissionFixedAmount" integer, UNIQUE("businessId",id));
 CREATE TABLE "Service" (id text PRIMARY KEY,"businessId" text,price integer, UNIQUE("businessId",id));
-CREATE TABLE "Appointment" (id text PRIMARY KEY,"businessId" text,"customerId" text,"professionalId" text,"serviceId" text,status "AppointmentStatus","startAt" timestamp,"totalDurationMinutes" integer,"quotedPrice" integer, UNIQUE("businessId",id));
+CREATE TABLE "Appointment" (id text PRIMARY KEY,"customerId" text,"professionalId" text,"serviceId" text,status "AppointmentStatus","startAt" timestamp,"totalDurationMinutes" integer,"quotedPrice" integer);
 CREATE TABLE "AppointmentServiceItem" ("appointmentId" text,"serviceId" text,price integer, PRIMARY KEY("appointmentId","serviceId"));
-CREATE TABLE "CashEntry" (id text PRIMARY KEY,"businessId" text,"reversesEntryId" text,amount integer, UNIQUE("businessId",id));
-CREATE TABLE "AppointmentAccount" (id text PRIMARY KEY,"businessId" text,"agreedAmount" integer,"discountAmount" integer NOT NULL DEFAULT 0);
-CREATE TABLE "AppointmentAccountLink" ("businessId" text,"appointmentId" text,"accountId" text);
+CREATE TABLE "BookingDeposit" (id text PRIMARY KEY,"businessId" text, UNIQUE("businessId",id));
+CREATE TABLE "TreasuryAccount" (id text PRIMARY KEY,"businessId" text,method text,"createdAt" timestamp);
+CREATE TABLE "TreasuryMovement" (id text PRIMARY KEY,"businessId" text,"createdAt" timestamp);
 CREATE TABLE "ProductSale" ("businessId" text,"appointmentId" text,"serviceSubtotal" integer);
 CREATE TABLE "ProfessionalService" ("professionalId" text,"serviceId" text,"commissionMode" "ProfessionalCompensationMode","commissionPercentage" numeric,"commissionFixedAmount" integer);
 CREATE TABLE "ProfessionalAccountEntry" (id text PRIMARY KEY,"businessId" text,"professionalId" text,"appointmentId" text,type "ProfessionalAccountEntryType",direction "ProfessionalAccountDirection",amount integer,"baseAmount" integer,"ruleMode" "ProfessionalCompensationMode","rulePercentage" numeric,"ruleFixedAmount" integer,description text,"actorUserId" text,"actorName" text,"effectiveAt" timestamp, UNIQUE("businessId","appointmentId"));
 `)
-await db.exec(readFileSync(new URL('../prisma/migrations/202611240001_booking_programs/migration.sql',import.meta.url),'utf8'))
-await db.exec(readFileSync(new URL('../prisma/migrations/202611250001_membership_service_quotas/migration.sql',import.meta.url),'utf8'))
+for (const migration of [
+  '20260906120000_add_cash_financial_ledger',
+  '20260919210000_add_cash_expense_categories',
+  '20260925010000_treasury_payment_methods_and_counterparties',
+  '20260925020000_operating_income',
+  '20260925030000_unify_cash_income',
+  '202611240001_booking_programs',
+  '202611250001_membership_service_quotas'
+]) {
+  await db.exec(readFileSync(new URL('../prisma/migrations/' + migration + '/migration.sql',import.meta.url),'utf8'))
+}
 const rules=[{serviceId:'cut',name:'Corte',uses:2,unitPrice:25000},{serviceId:'color',name:'Coloracion',uses:1,unitPrice:50000}]
 await db.exec(`INSERT INTO "Business" VALUES ('b','America/Argentina/Buenos_Aires'),('other','UTC');
+INSERT INTO "User" VALUES ('owner','b');
 INSERT INTO "Customer" VALUES ('c','b'),('stranger','b');
 INSERT INTO "Professional" (id,"businessId","commissionMode","commissionPercentage") VALUES ('p','b','PERCENTAGE',50);
 INSERT INTO "Service" VALUES ('cut','b',40000),('color','b',60000);
-INSERT INTO "CashEntry" VALUES ('purchase','b',NULL,100000);`)
-await db.query(`INSERT INTO "BenefitPlan" (id,"businessId",name,kind,"serviceIds","totalUses",price,"serviceRules") VALUES ('plan','b','Mixta','MEMBERSHIP',ARRAY['cut','color'],3,100000,$1)`,[JSON.stringify(rules)])
-await db.query(`INSERT INTO "CustomerBenefit" (id,"businessId","customerId","planId",name,kind,"serviceIds","totalUses","discountPercent",price,"startsOn","endsOn","cancellationHours","consumeLateCancellation","consumeNoShow","cashEntryId","requestKey","requestHash","serviceRules") VALUES ('grant','b','c','plan','Mixta','MEMBERSHIP',ARRAY['cut','color'],3,100,100000,'2027-01-01','2027-01-30',24,false,false,'purchase','key','hash',$1)`,[JSON.stringify(rules)])
+INSERT INTO "CashRegisterDay" (id,"businessId","openingCash") VALUES ('day','b',0);
+INSERT INTO "CashSession" (id,"businessId","registerDayId","responsibleUserId","responsibleName") VALUES ('session','b','day','owner','Recepcion');
+INSERT INTO "BusinessPaymentMethod" (id,"businessId",name,"normalizedName",kind) VALUES
+  ('cash','b','Efectivo','efectivo','CASH'),('transfer','b','Transferencia','transferencia','TRANSFER'),('card','b','Tarjeta','tarjeta','CARD');
+INSERT INTO "CashExpenseCategory" (id,"businessId",name,"normalizedName") VALUES ('memberships','b','Membresias y packs','membresias y packs');`)
+const insertPurchase = (id: string, kind: string, methodId: string, direction = 'INFLOW', category: string | null = 'memberships', session: string | null = 'session') =>
+  db.query(`INSERT INTO "CashEntry" (id,"businessId","registerDayId","cashSessionId",type,direction,amount,"paymentMethod",
+    "businessPaymentMethodId",origin,description,"expenseCategoryId")
+    VALUES ($1,'b','day',$2,'INCOME',$3,40000,$4,$5,'CASH_REGISTER','Membresia: Plata',$6)`,
+    [id,session,direction,kind,methodId,category])
+await assert.rejects(() => insertPurchase('purchase','CASH','cash'), /CashEntry_shape_check/)
+await db.exec(readFileSync(new URL('../prisma/migrations/20261125120000_allow_cash_operating_income/migration.sql',import.meta.url),'utf8'))
+for (const [id,kind,methodId] of [['purchase','CASH','cash'],['purchase-transfer','TRANSFER','transfer'],['purchase-card','CARD','card']] as const) {
+  await insertPurchase(id,kind,methodId)
+}
+await assert.rejects(() => insertPurchase('outflow','CASH','cash','OUTFLOW'), /CashEntry_shape_check/)
+await assert.rejects(() => insertPurchase('no-session','CASH','cash','INFLOW','memberships',null), /CashEntry_shape_check/)
+await assert.rejects(() => insertPurchase('no-category','CASH','cash','INFLOW',null), /CashEntry_expense_category_only_for_classified_operation_check/)
+await assert.rejects(() => insertPurchase('wrong-method','CASH','card'), /business payment method mismatch/)
+await db.query(`INSERT INTO "BenefitPlan" (id,"businessId",name,kind,"serviceIds","totalUses",price,"serviceRules") VALUES ('plan','b','Mixta','MEMBERSHIP',ARRAY['cut','color'],3,40000,$1)`,[JSON.stringify(rules)])
+await db.query(`INSERT INTO "CustomerBenefit" (id,"businessId","customerId","planId",name,kind,"serviceIds","totalUses","discountPercent",price,"startsOn","endsOn","cancellationHours","consumeLateCancellation","consumeNoShow","cashEntryId","requestKey","requestHash","serviceRules") VALUES ('grant','b','c','plan','Mixta','MEMBERSHIP',ARRAY['cut','color'],3,100,40000,'2027-01-01','2027-01-30',24,false,false,'purchase','key','hash',$1)`,[JSON.stringify(rules)])
 async function appointment(id:string, serviceId='cut',date='2027-01-15T15:00:00',customerId='c') {
   const price=serviceId==='cut'?40000:60000
-  await db.query(`INSERT INTO "Appointment" VALUES ($1,'b',$2,'p',$3,'CONFIRMED',$4,30,$5)`,[id,customerId,serviceId,date,price])
+  await db.query(`INSERT INTO "Appointment" (id,"businessId","customerId","professionalId","serviceId",status,"startAt","totalDurationMinutes","quotedPrice") VALUES ($1,'b',$2,'p',$3,'CONFIRMED',$4,30,$5)`,[id,customerId,serviceId,date,price])
   await db.query(`INSERT INTO "AppointmentServiceItem" VALUES ($1,$2,$3)`,[id,serviceId,price])
-  await db.query(`INSERT INTO "AppointmentAccount" VALUES ($1,'b',$2,$2)`,['account-'+id,price])
-  await db.query(`INSERT INTO "AppointmentAccountLink" VALUES ('b',$1,$2)`,[id,'account-'+id])
+  await db.query(`INSERT INTO "AppointmentAccount" (id,"businessId","pricingMode","agreedAmount","discountAmount","updatedAt") VALUES ($1,'b','FIXED',$2,$2,clock_timestamp())`,['account-'+id,price])
+  await db.query(`INSERT INTO "AppointmentAccountLink" ("businessId","appointmentId","accountId") VALUES ('b',$1,$2)`,[id,'account-'+id])
 }
 async function reserve(id:string,serviceId='cut') {
   const originalPrice=serviceId==='cut'?40000:60000,unitPrice=serviceId==='cut'?25000:50000
@@ -61,8 +90,9 @@ try {
   await db.query(`UPDATE "Appointment" SET status='COMPLETED' WHERE id='second'`)
   assert.equal(await state('second'),'CONSUMED')
   await db.query(`UPDATE "Service" SET price=90000 WHERE id='cut'`)
-  await db.query(`UPDATE "AppointmentAccountLink" SET "accountId"='account-second' WHERE "appointmentId"='color'`)
-  await db.query(`UPDATE "AppointmentAccount" SET "agreedAmount"=100000,"discountAmount"=100000 WHERE id='account-second'`)
+  await db.exec(`INSERT INTO "AppointmentAccount" (id,"businessId","pricingMode","agreedAmount","discountAmount","updatedAt") VALUES
+    ('shared-account','b','FIXED',100000,100000,clock_timestamp());
+    UPDATE "AppointmentAccountLink" SET "accountId"='shared-account' WHERE "appointmentId" IN ('second','color');`)
   const tx={$queryRaw:async(sql:Prisma.Sql)=>(await db.query(sql.text,sql.values.map(v=>v instanceof Date?v.toISOString():v))).rows} as Prisma.TransactionClient
   await ensureProfessionalEarningForCompletedAppointment(tx,{businessId:'b',appointmentId:'second',actorUserId:'admin',actorName:'Admin'})
   await ensureProfessionalEarningForCompletedAppointment(tx,{businessId:'b',appointmentId:'second',actorUserId:'admin',actorName:'Admin'})
@@ -70,14 +100,16 @@ try {
   assert.equal(earnings.length,1)
   assert.equal(earnings[0]!.baseAmount,25000)
   assert.equal(earnings[0]!.amount,12500,'comision sobre Plata, no sobre precio habitual ni cero')
-  assert.equal((await db.query(`SELECT * FROM "CashEntry"`)).rows.length,1,'atencion y comision no duplican ingreso')
+  assert.equal((await db.query(`SELECT * FROM "CashEntry"`)).rows.length,3,'atencion y comision no duplican ingreso')
   await assert.rejects(()=>db.query(`UPDATE "CustomerBenefit" SET price=1 WHERE id='grant'`),/MEMBERSHIP_PURCHASE_TERMS_IMMUTABLE/)
   await assert.rejects(()=>db.query(`UPDATE "BenefitUse" SET "commissionBase"=1 WHERE id='second'`),/MEMBERSHIP_USE_TERMS_IMMUTABLE/)
-  await assert.rejects(()=>db.query(`UPDATE "AppointmentAccount" SET "discountAmount"=0 WHERE id='account-second'`),/MEMBERSHIP_COVERAGE_LOCKED/)
+  await assert.rejects(()=>db.query(`UPDATE "AppointmentAccount" SET "discountAmount"=0 WHERE id='shared-account'`),/MEMBERSHIP_COVERAGE_LOCKED/)
   await appointment('stranger','cut','2027-01-15T15:00:00','stranger')
   await assert.rejects(()=>reserve('stranger'),/BENEFIT_CUSTOMER_OR_STATUS_CONFLICT/)
   await appointment('expired','cut','2027-01-31T15:00:00')
   await assert.rejects(()=>reserve('expired'),/BENEFIT_OUTSIDE_PAID_PERIOD/)
-  await assert.rejects(()=>db.query(`INSERT INTO "CashEntry" VALUES ('refund','b','purchase',100000)`),/BENEFIT_HAS_RESERVED_OR_CONSUMED_USES/)
-  console.log('OK PostgreSQL offline: migraciones, cuotas, cancelacion, reactivacion, vencimiento, titularidad y comisiones reales.')
+  await assert.rejects(()=>db.query(`INSERT INTO "CashEntry" (id,"businessId","registerDayId","cashSessionId",type,direction,amount,
+    "paymentMethod","businessPaymentMethodId",origin,"reversesEntryId")
+    VALUES ('refund','b','day','session','REVERSAL','OUTFLOW',40000,'CASH','cash','CASH_REGISTER','purchase')`),/BENEFIT_HAS_RESERVED_OR_CONSUMED_USES/)
+  console.log('OK PostgreSQL offline: ingresos de Caja, cuotas, cancelacion, reactivacion, vencimiento, titularidad y comisiones.')
 } finally { await db.close() }
