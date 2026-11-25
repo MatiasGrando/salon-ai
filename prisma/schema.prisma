@@ -1003,6 +1003,7 @@ model Business {
   legacyCutoverInbounds       LegacyWhatsAppCutoverInbound[]
   appointmentAccounts         AppointmentAccount[]
   appointmentTotalAdjustments AppointmentTotalAdjustment[]
+  appointmentMutationRequests AppointmentMutationRequest[]
   appointmentServiceCorrections AppointmentServiceCorrection[]
   appointmentAccountLinks     AppointmentAccountLink[]
   appointments                Appointment[]
@@ -1315,6 +1316,7 @@ model User {
   cashSessions                     CashSession[] @relation("CashSessionLocalResponsible")
   administratorCashSessions        CashSession[] @relation("CashSessionAdministrator")
   appointmentTotalAdjustments      AppointmentTotalAdjustment[] @relation("AppointmentTotalAdjustmentActor")
+  appointmentMutationRequests     AppointmentMutationRequest[] @relation("AppointmentMutationRequestActor")
   appointmentServiceCorrections    AppointmentServiceCorrection[] @relation("AppointmentServiceCorrectionActor")
   productSales                     ProductSale[]                @relation("ProductSaleActor")
   productSaleAudits                ProductSaleAudit[]           @relation("ProductSaleAuditActor")
@@ -2290,6 +2292,7 @@ model Appointment {
   bookingDeposit           BookingDeposit?
   changeHistory            AppointmentChangeHistory[]
   serviceItems             AppointmentServiceItem[]
+  mutationRequests         AppointmentMutationRequest[]
   serviceCorrections       AppointmentServiceCorrection[]
   accountLink              AppointmentAccountLink?
   productSale              ProductSale?
@@ -2359,6 +2362,24 @@ model AppointmentTotalAdjustment {
 
   @@index([businessId, accountId, createdAt, id])
   @@index([businessId, actorUserId, createdAt])
+}
+
+/// Server-only receipt for retrying a manual appointment creation or payment.
+model AppointmentMutationRequest {
+  businessId          String
+  business            Business @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  requestId           String
+  operation           String
+  appointmentId       String
+  appointment         Appointment @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  actorUserId         String
+  actor               User @relation("AppointmentMutationRequestActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  requestFingerprint  String
+  result              Json
+  createdAt           DateTime @default(dbgenerated("clock_timestamp()"))
+
+  @@id([businessId, requestId])
+  @@index([businessId, appointmentId, createdAt])
 }
 
 model AppointmentServiceCorrection {

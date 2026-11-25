@@ -8,7 +8,7 @@ const [schema, migration, appointmentRoute, publicBooking, conversationService, 
   readFile(new URL('../src/routes/public-booking.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/services/conversation-service.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/providers/internal-booking-provider.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')
+  readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8').then(async (source) => source + '\n' + await readFile(new URL('../src/routes/crm-ui/appointment-dialog.ts', import.meta.url), 'utf8'))
 ])
 
 assert.match(schema, /enum AppointmentOrigin\s*{[\s\S]*BOT[\s\S]*WEB[\s\S]*MANUAL[\s\S]*UNKNOWN[\s\S]*}/)

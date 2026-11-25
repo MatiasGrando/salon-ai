@@ -232,7 +232,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const conversationalAi = resolveWhatsAppConversationAi(process.env)
     const instagramAi=resolveInstagramConversationAi(process.env)
     if (conversationalAi) conversationalAi.onDiagnostic = value => {
-      console.info('[conversational-bot-latency]', JSON.stringify(value))
+      console.info('[conversational-bot-latency]', JSON.stringify({ ...value, channel: 'WHATSAPP' }))
+    }
+    if (instagramAi) instagramAi.onDiagnostic = value => {
+      console.info('[conversational-bot-latency]', JSON.stringify({ ...value, channel: 'INSTAGRAM' }))
     }
     const handler = async (job: Parameters<typeof processSessionJob>[0]['job']) => {
       const startedAt = performance.now()

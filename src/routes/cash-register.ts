@@ -4,6 +4,7 @@ import { Prisma } from '../generated/prisma/client.js'
 import { prisma } from '../config/prisma.js'
 import { PrismaCashRepository } from '../repositories/prisma-cash-repository.js'
 import { CashDomainError } from '../services/cash-domain.js'
+import { AppointmentMutationRequestError } from '../services/appointment-mutation-request.js'
 import { CashService, CashServiceError, type CashOperationInput } from '../services/cash-service.js'
 import { hasCashPermission, type CashPermission, type StaffAuthorizationUser } from '../services/staff-permission-service.js'
 import { requireAuthorizedBusiness } from '../services/business-authorization.js'
@@ -583,7 +584,10 @@ function validation(reply: FastifyReply, message: string) {
 }
 
 export function sendCashError(reply: FastifyReply, error: unknown) {
-  const code = error instanceof CashServiceError || error instanceof CashDomainError ? error.code : 'INTERNAL_ERROR'
+  const code = error instanceof CashServiceError || error instanceof CashDomainError || error instanceof AppointmentMutationRequestError ? error.code : 'INTERNAL_ERROR'
+  if (code === 'APPOINTMENT_REQUEST_CONFLICT') return reply.status(409).send({ code, message: 'Esta solicitud ya se utilizó con otros datos. Revisá el turno antes de continuar' })
+  if (code === 'APPOINTMENT_BALANCE_CHANGED') return reply.status(409).send({ code, message: 'El saldo cambió. Revisá el importe actualizado antes de confirmar' })
+  if (code === 'APPOINTMENT_REQUEST_INVALID') return reply.status(400).send({ code: 'VALIDATION', message: 'La identificación de la solicitud no es válida' })
   if (code === 'BUSINESS_ADMIN_REQUIRED') return reply.status(403).send({ code, message: 'Se requiere un administrador activo con acceso a este local para corregir el servicio realizado' })
   const correctionErrors: Record<string, string> = {
     COMPLETED_SINGLE_SERVICE_APPOINTMENT_REQUIRED: 'La corrección requiere un turno realizado de un único servicio',

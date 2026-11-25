@@ -16,6 +16,7 @@ const SHARED_COMMERCIAL_DEMO_TYPES = ['NAILS', 'HAIR_SALON', 'BARBERSHOP', 'PILA
 declare module 'fastify' {
   interface FastifyRequest {
     auth?: AuthContext
+    appointmentMutationReplayed?: boolean
   }
 }
 
@@ -50,6 +51,7 @@ export async function authGuard(app: FastifyInstance) {
 
   app.addHook('onResponse', async (request, reply) => {
     const user = request.auth?.user
+    if (request.appointmentMutationReplayed) return
     if (!user || user.role !== 'STAFF' || !user.businessId || request.method.toUpperCase() === 'GET' || reply.statusCode >= 400) return
     const params = request.params as { id?: string; customerId?: string } | undefined
     const path = request.url.split('?')[0] || '/'
@@ -96,6 +98,9 @@ function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
     || /^\/service-categories\/[^/]+$/.test(path)
     || path === '/services'
     || /^\/services\/[^/]+(?:\/status)?$/.test(path)
+    || (['GET', 'HEAD', 'POST'].includes(method) && ['/product-categories', '/products'].includes(path))
+    || (method === 'PATCH' && /^\/(?:product-categories|products)\/[^/]+$/.test(path))
+    || (method === 'POST' && path === '/product-sales')
     || path.startsWith('/cash-register')
     || path === '/crm/cash-events'
     || path === '/appointments/finance-summaries'
@@ -379,6 +384,9 @@ const internalRouteRoots = new Set([
   'crm',
   'customers',
   'health',
+  'product-categories',
+  'products',
+  'product-sales',
   'professional-hours',
   'professionals',
   'post-sale',

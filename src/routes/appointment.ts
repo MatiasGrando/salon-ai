@@ -7,6 +7,7 @@ import { authorizedAppointmentWhere } from '../services/tenant-resource-authoriz
 import { requireAuthorizedBusiness } from '../services/business-authorization.js'
 import { PrismaCashRepository } from '../repositories/prisma-cash-repository.js'
 import { CashService, CashServiceError } from '../services/cash-service.js'
+import { appointmentRequestFingerprint, normalizeAppointmentRequestId } from '../services/appointment-mutation-request.js'
 import { hasCashPermission, type CashPermission, type StaffAuthorizationUser } from '../services/staff-permission-service.js'
 import { sendCashError } from './cash-register.js'
 import {
@@ -64,6 +65,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     }
 
     const body = request.body as {
+      requestId?: string
       customerId?: string
       customerPhone?: string
       professionalId: string
@@ -141,8 +143,13 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
         ...(body.notes === undefined ? {} : { notes: body.notes }),
         ...(body.attentionColor === undefined ? {} : { attentionColor: body.attentionColor }),
         ...(body.force === undefined ? {} : { force: body.force })
-      }, authUser, payment ? {
-        afterCreateInTransaction: async ({ transaction, appointment, businessId }) => {
+      }, authUser, {
+        ...(body.requestId === undefined ? {} : { mutationRequest: {
+          requestId: normalizeAppointmentRequestId(body.requestId),
+          requestFingerprint: appointmentRequestFingerprint({ ...body, requestId: undefined }),
+          requirePayment: hasPaymentLines || hasAgreedTotal, requireDiscount: hasDiscount
+        } }),
+        ...(payment ? { afterCreateInTransaction: async ({ transaction, appointment, businessId }) => {
           if (businessId !== paymentBusinessId) throw new CashServiceError('BUSINESS_NOT_FOUND')
           const transactionalCashService = new CashService(new PrismaCashRepository(transaction, true))
           if (payment.agreedAmount !== undefined) {
@@ -173,8 +180,8 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
               ...(payment.observation === undefined ? {} : { observation: payment.observation })
             })
           }
-        }
-      } : {})
+        } } : {})
+      })
     } catch (error) {
       return sendCashError(reply, error)
     }
@@ -188,6 +195,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       })
     }
 
+    if ('replayed' in result.appointment && result.appointment.replayed === true) request.appointmentMutationReplayed = true
     return result.appointment
   })
 
@@ -503,7 +511,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
 
   if (options.cashRegisterEnabled !== false) app.get('/appointments/:id/finance', async (request, reply) => {
     const params = request.params as { id: string }
-    const query = request.query as { businessId?: string }
+    const query = request.query as { businessId?: string; view?: string }
     const businessId = financeBusinessId(request.auth?.user, query.businessId)
     if (!businessId || !hasAnyCashPermission(request.auth?.user, ['canRecordAppointmentPayments', 'canApplyDiscounts'])) {
       return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para consultar pagos del turno' })
@@ -512,6 +520,11 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       return sendAuthorizationFailure(reply, 'notFound')
     }
     try {
+      if (query.view === 'summary') {
+        if (!request.auth?.user || !await requireAuthorizedBusiness(prisma, request.auth.user, businessId)) return sendAuthorizationFailure(reply, 'notFound')
+        return await cashService.getAppointmentFinanceSummary({ businessId, appointmentId: params.id,
+          ...appointmentFinanceProfessionalScope(request.auth.user) })
+      }
       const finance = await cashService.getAppointmentFinance({ businessId, appointmentId: params.id })
       if (request.auth?.user.role !== 'STAFF') return finance
       return {
@@ -634,6 +647,8 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       cashSessionId?: string
       lines?: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD'; paymentMethodId?: string }>
       observation?: string | null
+      requestId?: string
+      expectedBalance?: number
       completeAppointment?: boolean
     }
     const businessId = financeBusinessId(request.auth?.user, body.businessId)
@@ -654,13 +669,17 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     }
     const timing = startAppointmentActionTiming(reply)
     try {
-      return await cashService.recordAppointmentPayment({
+      const result = await cashService.recordAppointmentPayment({
         businessId,
         appointmentId: params.id,
         ...appointmentFinanceProfessionalScope(request.auth?.user),
         cashSessionId: body.cashSessionId.trim(),
         origin: 'AGENDA',
         lines: body.lines,
+        ...(body.requestId === undefined ? {} : { requestId: body.requestId }),
+        ...(body.expectedBalance === undefined ? {} : { expectedBalance: body.expectedBalance }),
+        actorUserId: request.auth!.user.id,
+        ...(request.auth!.user.authorizedBusinessIdOverride ? { authorizedBusinessIdOverride: request.auth!.user.authorizedBusinessIdOverride } : {}),
         ...(body.observation === undefined ? {} : { observation: body.observation }),
         ...(body.completeAppointment ? {
           completeAppointment: true,
@@ -668,6 +687,8 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
           actorName: request.auth!.user.name
         } : {})
       }, timing.mark).finally(timing.finish)
+      if ('replayed' in result && result.replayed === true) request.appointmentMutationReplayed = true
+      return result
     } catch (error) {
       return sendCashError(reply, error)
     }

@@ -8,7 +8,7 @@ const [schema, serviceSource, repositorySource, routeSource, uiSource, crmUiSour
   readFile(new URL('../src/repositories/prisma-cash-repository.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/routes/appointment.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/routes/crm-ui/cash-register.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8').then(async (source) => source + '\n' + await readFile(new URL('../src/routes/crm-ui/appointment-dialog.ts', import.meta.url), 'utf8')),
   readFile(new URL('../src/services/appointment-service.ts', import.meta.url), 'utf8')
 ])
 assert.match(schema, /enum AppointmentCompletionSource[\s\S]*MANUAL[\s\S]*FULL_PAYMENT/)

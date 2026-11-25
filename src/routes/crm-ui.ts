@@ -4,11 +4,12 @@ import { crmRealtimeConfig } from '../config/crm-realtime.js'
 import type { PollingMarkerConfig } from '../observability/egress-baseline/types.js'
 import { WORKSHOP_DEFAULT_BRAND_NAMES } from '../services/workshop-vehicle-domain.js'
 import {
-  appointmentFinanceMarkup,
+  appointmentFinanceFragments,
   cashRegisterMarkup,
   cashRegisterScript,
   cashRegisterStyles
 } from './crm-ui/cash-register.js'
+import { appointmentDialogStyles, renderAppointmentDialogMarkup, appointmentCheckoutMarkup, appointmentDialogLayoutScript } from './crm-ui/appointment-dialog.js'
 import { pipelineMarkup, pipelineScript, pipelineStyles } from './crm-ui/pipeline.js'
 import { instagramMediaMarkup, instagramMediaScript, instagramMediaStyles } from './crm-ui/instagram-media.js'
 import { instagramPlanningMarkup, instagramPlanningScript, instagramPlanningStyles } from './crm-ui/instagram-planning.js'
@@ -16663,6 +16664,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
     ${bookingEmailMediaStyles}
     ${cashRegisterEnabled ? cashRegisterStyles : ''}
+    ${appointmentDialogStyles}
   </style>
 </head>
 <body data-mobile-view="inbox" data-current-section="conversations" data-auth="checking">
@@ -17230,143 +17232,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       </div>
     </section>
 
-    <div class="dialog-backdrop" id="appointment-dialog" hidden>
-      <section class="dialog appointment-dialog-card" role="dialog" aria-modal="true" aria-labelledby="appointment-dialog-title">
-        <header class="dialog-header">
-          <h3 id="appointment-dialog-title">Nuevo turno</h3>
-          <div class="appointment-dialog-header-actions">
-            <a class="whatsapp" id="appointment-whatsapp" href="#" title="Abrir WhatsApp Desktop" aria-label="Abrir WhatsApp Desktop" data-icon="whatsapp" hidden></a>
-            <button id="appointment-open-chat" type="button" title="Abrir chat del cliente" aria-label="Abrir chat del cliente" data-icon="mail" hidden></button>
-            <div class="appointment-attention-picker" id="appointment-attention-picker" hidden>
-              <input id="appointment-attention-color" type="hidden" value="NONE">
-              <button class="appointment-attention-toggle" id="appointment-attention-toggle" type="button" title="Marcar turno para atenci&oacute;n" aria-label="Marcar turno para atenci&oacute;n" aria-haspopup="menu" aria-expanded="false"><span class="appointment-attention-dot" aria-hidden="true"></span></button>
-              <div class="appointment-attention-menu" id="appointment-attention-menu" role="menu" hidden>
-                <button type="button" role="menuitemradio" data-appointment-attention="NONE"><span class="appointment-attention-option-dot"></span>Sin color</button>
-                <button type="button" role="menuitemradio" data-appointment-attention="YELLOW"><span class="appointment-attention-option-dot attention-yellow"></span>Amarillo</button>
-                <button type="button" role="menuitemradio" data-appointment-attention="ORANGE"><span class="appointment-attention-option-dot attention-orange"></span>Naranja</button>
-              </div>
-            </div>
-            <button class="icon-button" id="appointment-close" type="button" title="Cerrar">X</button>
-          </div>
-        </header>
-        <form class="appointment-form" id="appointment-form" novalidate>
-          <div class="appointment-modal-body">
-          <div class="form-row">
-            <label for="appointment-start">Fecha y hora</label>
-            <input class="field" id="appointment-start" type="datetime-local" required>
-          </div>
-          <div class="split-row">
-            <div class="form-row">
-              <label for="appointment-professional">Profesional</label>
-              <select id="appointment-professional" required></select>
-            </div>
-            <div class="form-row">
-              <label for="appointment-service">Servicio</label>
-              <select id="appointment-service" required></select>
-            </div>
-          </div>
-          <section class="appointment-visit-services" id="appointment-visit-services" hidden>
-            <div class="appointment-visit-services-header">
-              <div>
-                <h4>Servicios de la visita</h4>
-                <p>Sum&aacute; otro servicio sin volver a buscar al cliente. Si cambia el profesional, se crear&aacute; un tramo coordinado.</p>
-              </div>
-              <button class="secondary" id="appointment-add-service-open" type="button">+ Agregar servicio a esta visita</button>
-            </div>
-            <div class="appointment-visit-services-list" id="appointment-visit-services-list"></div>
-            <div class="appointment-add-service-panel" id="appointment-add-service-panel" hidden>
-              <div class="appointment-add-service-grid">
-                <div class="form-row">
-                  <label for="appointment-add-service-service">Servicio</label>
-                  <select id="appointment-add-service-service"></select>
-                </div>
-                <div class="form-row">
-                  <label for="appointment-add-service-professional">Profesional</label>
-                  <select id="appointment-add-service-professional"></select>
-                </div>
-                <div class="form-row full">
-                  <label for="appointment-add-service-start">Comienza</label>
-                  <input class="field" id="appointment-add-service-start" type="datetime-local">
-                </div>
-              </div>
-              <p class="appointment-add-service-feedback" id="appointment-add-service-feedback" role="status"></p>
-              <div class="appointment-add-service-actions">
-                <button class="secondary" id="appointment-add-service-cancel" type="button">Cancelar</button>
-                <button class="primary" id="appointment-add-service-submit" type="button">Agregar a la visita</button>
-              </div>
-            </div>
-          </section>
-          <div class="form-row">
-            <label for="appointment-customer-search">Buscar cliente existente</label>
-            <div class="appointment-customer-combobox">
-              <input id="appointment-customer" type="hidden">
-              <input class="field" id="appointment-customer-search" autocomplete="off" placeholder="Escrib&iacute; nombre o tel&eacute;fono" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="appointment-customer-results">
-              <div class="appointment-customer-results" id="appointment-customer-results" role="listbox" hidden></div>
-            </div>
-          </div>
-          <div class="split-row">
-            <div class="form-row">
-              <label for="appointment-customer-name">Nombre</label>
-              <input class="field" id="appointment-customer-name">
-            </div>
-            <div class="form-row">
-              <label for="appointment-customer-phone">Tel&eacute;fono</label>
-              <input class="field" id="appointment-customer-phone">
-            </div>
-          </div>
-          <section class="appointment-customer-technical-profile" id="appointment-customer-technical-profile" aria-labelledby="appointment-customer-technical-profile-title" hidden>
-            <div class="appointment-technical-profile-header">
-              <h4 id="appointment-customer-technical-profile-title">Ficha t&eacute;cnica del cliente</h4>
-              <button class="appointment-technical-profile-action" id="appointment-customer-technical-profile-edit" type="button" hidden>Editar</button>
-              <button class="appointment-technical-profile-action" id="appointment-customer-technical-profile-add" type="button" hidden>+ Agregar dato importante</button>
-            </div>
-            <div class="appointment-technical-profile-display" id="appointment-customer-technical-profile-display"></div>
-            <div class="appointment-technical-profile-editor" id="appointment-customer-technical-profile-editor" hidden>
-              <label for="appointment-customer-technical-profile-input">Dato t&eacute;cnico permanente</label>
-              <textarea class="field" id="appointment-customer-technical-profile-input" maxlength="1000" rows="3"></textarea>
-              <div class="appointment-technical-profile-editor-actions">
-                <button class="secondary" id="appointment-customer-technical-profile-cancel" type="button">Cancelar</button>
-                <button class="primary" id="appointment-customer-technical-profile-save" type="button">Guardar ficha</button>
-              </div>
-            </div>
-            <p class="appointment-technical-profile-feedback" id="appointment-customer-technical-profile-feedback" role="status"></p>
-          </section>
-          <div class="appointment-origin-summary" id="appointment-origin-row" hidden>
-            <span id="appointment-origin-badge" aria-hidden="true"></span>
-            <span>Origen: <strong id="appointment-origin-label"></strong></span>
-          </div>
-          <details class="appointment-additional" id="appointment-additional">
-            <summary>Informaci&oacute;n adicional</summary>
-            <div class="appointment-additional-content">
-              <div class="form-row">
-                <label for="appointment-notes">Observaci&oacute;n de este turno</label>
-                <textarea class="field" id="appointment-notes" maxlength="2000" rows="3"></textarea>
-              </div>
-              <div class="appointment-deposit-option" ${cashRegisterEnabled ? 'hidden' : ''}>
-                <label>
-                  <input id="appointment-deposit-paid" type="checkbox">
-                  Dej&oacute; se&ntilde;a
-                </label>
-                <div class="form-row appointment-deposit-amount" id="appointment-deposit-amount-row" hidden>
-                  <label for="appointment-deposit-amount">Monto de la se&ntilde;a</label>
-                  <input class="field" id="appointment-deposit-amount" type="number" min="1" step="1" inputmode="numeric" placeholder="Ej: 20000">
-                </div>
-              </div>
-            </div>
-          </details>
-          ${cashRegisterEnabled ? appointmentFinanceMarkup : ''}
-          <p class="hint" id="appointment-feedback"></p>
-          </div>
-          <div class="dialog-actions">
-            <button class="secondary" id="appointment-complete" type="button" hidden>Marcar realizado</button>
-            <button class="danger" id="appointment-no-show" type="button" hidden>Marcar ausente</button>
-            <button class="danger" id="appointment-delete" type="button" hidden>Eliminar</button>
-            <button class="secondary" id="appointment-cancel" type="button">Cancelar</button>
-            <button class="primary" id="appointment-submit" type="submit">Guardar turno</button>
-          </div>
-        </form>
-      </section>
-    </div>
+    ${renderAppointmentDialogMarkup({ cashRegisterEnabled, financeCreateMarkup: appointmentFinanceFragments.create, financeEditMarkup: appointmentFinanceFragments.edit, productsMarkup: appointmentFinanceFragments.products, correctionMarkup: appointmentFinanceFragments.correction })}
+    ${cashRegisterEnabled ? appointmentCheckoutMarkup : ''}
 
     <div class="dialog-backdrop" id="operational-reset-dialog" hidden>
       <section class="dialog operational-reset-dialog" role="dialog" aria-modal="true" aria-labelledby="operational-reset-title" aria-describedby="operational-reset-description">
@@ -23479,15 +23346,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function applyAgendaPermissions() {
       const completedReadOnly = editingAgendaAppointment()?.status === 'COMPLETED'
+      const detailsReadOnly = completedReadOnly || (state.editingAppointmentId ? !canEditAppointments() : !canCreateAppointments())
       if (els.agendaNewAppointment) els.agendaNewAppointment.disabled = !canCreateAppointments()
       if (els.quickSchedule) els.quickSchedule.disabled = !canCreateAppointments()
       if (els.quickChange) els.quickChange.disabled = !canEditAppointments()
       if (els.appointmentSubmit) els.appointmentSubmit.disabled = state.editingAppointmentId ? !canEditAppointments() : !canCreateAppointments()
       els.appointmentSubmit.hidden = completedReadOnly
-      els.appointmentService.disabled = completedReadOnly || !appointmentServicesForProfessional(els.appointmentProfessional.value).length
-      els.appointmentProfessional.disabled = completedReadOnly
-      for (const control of [els.appointmentStart, els.appointmentCustomerSearch, els.appointmentCustomerName, els.appointmentCustomerPhone, els.appointmentNotes, els.appointmentDepositPaid]) control.disabled = completedReadOnly
-      els.appointmentDepositAmount.disabled = completedReadOnly || !els.appointmentDepositPaid.checked
+      els.appointmentService.disabled = detailsReadOnly || !appointmentServicesForProfessional(els.appointmentProfessional.value).length
+      els.appointmentProfessional.disabled = detailsReadOnly
+      for (const control of [els.appointmentStart, els.appointmentCustomerSearch, els.appointmentCustomerName, els.appointmentCustomerPhone, els.appointmentNotes, els.appointmentDepositPaid]) control.disabled = detailsReadOnly
+      els.appointmentDepositAmount.disabled = detailsReadOnly || !els.appointmentDepositPaid.checked
       if (completedReadOnly) els.appointmentDelete.hidden = true
       if (els.appointmentAddServiceOpen) els.appointmentAddServiceOpen.disabled = !canCreateAppointments() || !canEditAppointments()
       if (els.appointmentDelete) els.appointmentDelete.disabled = !canCancelAppointments()
@@ -25413,6 +25281,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         if (sharedCustomer) sharedCustomer.technicalProfile = customer.technicalProfile
         if (state.selectedCustomerId === customer.id) renderCustomerProfile()
         showCrmToast('Ficha técnica actualizada.', 'success')
+        return true
       } catch (error) {
         feedback.textContent = error.message
       } finally {
@@ -34661,6 +34530,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function addServiceToAppointmentVisit() {
+      if (!await ensureAppointmentDraftSaved()) return
       const appointment = editingAgendaAppointment()
       const serviceId = els.appointmentAddServiceService.value
       const professionalId = els.appointmentAddServiceProfessional.value
@@ -34718,7 +34588,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         }
         closeAppointmentAddServicePanel()
         closeAppointmentDialog()
-        await loadAgenda()
+        ${cashRegisterEnabled ? 'await refreshAppointmentFinanceGroup(appointment.id)' : 'await refreshAgendaAppointment(appointment.id)'}
         if (state.selected) {
           await loadAppointments()
           renderAppointments()
@@ -34740,6 +34610,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         })
         return
       }
+      if (els.appointmentDialog.hidden) { state.appointmentDialogReturnFocus = document.activeElement; state.appointmentDialogPreviousOverflow = document.body.style.overflow }
       renderAppointmentFormOptions()
       els.appointmentFeedback.textContent = ''
       const appointment = input.appointment
@@ -34819,8 +34690,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       syncAppointmentDepositFields()
       syncAppointmentCustomerFields()
       const protectsScheduledCustomer = Boolean(appointment && !canViewAppointmentCustomerData())
-      const customerSearchRow = els.appointmentCustomerSearch.closest('.form-row')
-      const customerPhoneRow = els.appointmentCustomerPhone.closest('.form-row')
+      const customerSearchRow = els.appointmentCustomerSearch.closest('.ap-field')
+      const customerPhoneRow = els.appointmentCustomerPhone.closest('.ap-field')
       if (customerSearchRow) customerSearchRow.hidden = protectsScheduledCustomer || !canViewAppointmentCustomerData()
       if (customerPhoneRow) customerPhoneRow.hidden = protectsScheduledCustomer
       const usesExistingCustomerPhone = !appointment && state.currentUser?.role === 'STAFF' &&
@@ -34833,15 +34704,86 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       updateAppointmentContactActions(appointment)
       renderAppointmentVisitServices(appointment)
       ${cashRegisterEnabled ? 'prepareAppointmentFinance(appointment)' : ''}
+      if (!appointment) restorePendingManualAppointmentDraft()
       applyAgendaPermissions()
+      setAppointmentDialogMode(appointment ? 'edit' : 'new')
+      syncAppointmentDialogPresentation(appointment)
       els.appointmentDialog.hidden = false
+      document.body.style.overflow = 'hidden'
+      captureAppointmentDraft()
       els.appointmentStart.focus()
     }
 
+    function syncAppointmentDialogPresentation(appointment = editingAgendaAppointment()) {
+      const set = (id, value) => { const field = document.getElementById(id); if (field) field.textContent = value }
+      const status = { CONFIRMED: 'Confirmado', COMPLETED: 'Realizado', CANCELLED: 'Cancelado', NO_SHOW: 'Ausente', PENDING: 'Pendiente' }
+      set('appointment-header-date', appointment ? formatDateTime(new Date(appointment.startAt)) : '')
+      set('appointment-state-label', status[appointment?.status] || 'Nuevo turno')
+      set('appointment-customer-name-display', els.appointmentCustomerName.value || 'Sin cliente')
+      set('appointment-customer-phone-display', canViewAppointmentCustomerData() ? els.appointmentCustomerPhone.value || 'Sin teléfono' : '')
+      set('appointment-customer-avatar', (els.appointmentCustomerName.value || '?').slice(0, 1).toUpperCase())
+      const statusSelect = document.getElementById('appointment-status-select')
+      if (statusSelect) { statusSelect.value = appointment?.status || 'CONFIRMED'; statusSelect.disabled = !appointment || !canCompleteAppointments() && !canCancelAppointments() }
+    }
+
+    function readAppointmentDraft() {
+      const text = (field) => String(field?.value || '').trim()
+      return JSON.stringify({
+        startAt: text(els.appointmentStart), professionalId: text(els.appointmentProfessional),
+        serviceId: text(els.appointmentService), customerId: text(els.appointmentCustomer),
+        customerName: text(els.appointmentCustomerName), customerPhone: text(els.appointmentCustomerPhone),
+        notes: text(els.appointmentNotes), attentionColor: text(els.appointmentAttentionColor) || 'NONE',
+        manualDepositPaid: els.appointmentDepositPaid.checked === true,
+        manualDepositAmount: text(els.appointmentDepositAmount) ? Number(els.appointmentDepositAmount.value) : null,
+        createPayment: !state.editingAppointmentId && state.cashRegister ? {
+          actions: state.cashRegister.createFinance,
+          fields: Array.from(els.appointmentDialog.querySelectorAll('[id^="appointment-create-"] input, [id^="appointment-create-"] select, input[id^="appointment-create-"], select[id^="appointment-create-"], textarea[id^="appointment-create-"]')).map((field) => [field.id, field.value])
+        } : null
+      })
+    }
+
+    function captureAppointmentDraft() {
+      state.appointmentDraftSnapshot = readAppointmentDraft()
+      const note = document.getElementById('appointment-dirty-note')
+      if (note) note.hidden = true
+    }
+
+    function appointmentDraftIsDirty() {
+      const customer = state.customers?.find((item) => item.id === els.appointmentCustomer.value)
+      const technicalDirty = !els.appointmentCustomerTechnicalProfileEditor.hidden &&
+        els.appointmentCustomerTechnicalProfileInput.value.trim() !== (customer?.technicalProfile || '').trim()
+      return Boolean(technicalDirty || state.appointmentDraftSnapshot && readAppointmentDraft() !== state.appointmentDraftSnapshot)
+    }
+
+    async function ensureAppointmentDraftSaved() {
+      if (!appointmentDraftIsDirty()) return true
+      ${cashRegisterEnabled ? "if (state.editingAppointmentId && readPendingAppointmentPayment()) { els.appointmentFeedback.textContent = 'Confirmá primero el cobro pendiente antes de guardar otros cambios.'; return false }" : ''}
+      if (!await requestCrmConfirmation('Hay cambios sin guardar. Guardalos antes de continuar con esta operación.', {
+        title: 'Guardar cambios del turno', confirmLabel: 'Guardar y continuar', danger: false
+      })) return false
+      const customer = state.customers.find((item) => item.id === els.appointmentCustomer.value)
+      if (!els.appointmentCustomerTechnicalProfileEditor.hidden && els.appointmentCustomerTechnicalProfileInput.value.trim() !== (customer?.technicalProfile || '').trim()) {
+        if (!await saveAppointmentCustomerTechnicalProfile()) return false
+      }
+      return Boolean(await saveManualAppointment(null, { keepOpen: true }))
+    }
+
+    async function requestCloseAppointmentDialog() {
+      if (state.appointmentSaveInFlight) return
+      if (appointmentDraftIsDirty() && !await requestCrmConfirmation('Si cerrás, se perderán los cambios sin guardar de este turno.', {
+        title: 'Cerrar turno', confirmLabel: 'Descartar cambios', danger: false
+      })) return
+      closeAppointmentDialog()
+    }
+
     function closeAppointmentDialog() {
+      ${cashRegisterEnabled ? 'hideAppointmentCheckout()' : ''}
       els.appointmentDialog.hidden = true
+      document.body.style.overflow = state.appointmentDialogPreviousOverflow || ''
+      state.appointmentDialogReturnFocus?.isConnected && state.appointmentDialogReturnFocus.focus()
       els.appointmentFeedback.textContent = ''
       state.editingAppointmentId = null
+      state.appointmentDraftSnapshot = null
       state.editingAppointmentSnapshot = null
       state.appointmentDialogSource = null
       state.appointmentDialogRevision = (state.appointmentDialogRevision || 0) + 1
@@ -34899,6 +34841,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!customerId || !canViewAppointmentCustomerData()) return
 
       const customer = state.customers.find((item) => item.id === customerId)
+      if (customer?.technicalProfileLoaded) { renderAppointmentCustomerTechnicalProfile(customer); return }
       els.appointmentCustomerTechnicalProfile.hidden = false
       els.appointmentCustomerTechnicalProfileDisplay.textContent = 'Cargando ficha técnica...'
       els.appointmentCustomerTechnicalProfileDisplay.classList.add('is-empty')
@@ -34906,7 +34849,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       try {
         const result = await getJson('/customers/' + customerId + '/technical-profile')
         if (requestId !== state.appointmentCustomerTechnicalProfileRequest || els.appointmentCustomer.value !== customerId) return
-        if (customer) customer.technicalProfile = result.technicalProfile || ''
+        if (customer) { customer.technicalProfile = result.technicalProfile || ''; customer.technicalProfileLoaded = true }
         renderAppointmentCustomerTechnicalProfile(customer || { id: customerId, technicalProfile: result.technicalProfile || '' })
       } catch (error) {
         if (requestId !== state.appointmentCustomerTechnicalProfileRequest || els.appointmentCustomer.value !== customerId) return
@@ -34973,8 +34916,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.appointmentCustomerName.value = ''
         els.appointmentCustomerPhone.value = ''
       }
-      loadAppointmentCustomerTechnicalProfile()
+      resetAppointmentCustomerTechnicalProfile()
+      els.appointmentCustomerTechnicalProfile.hidden = !els.appointmentCustomer.value || !canViewAppointmentCustomerData()
+      els.appointmentCustomerTechnicalProfile.open = false
       updateAppointmentContactActions(editingAgendaAppointment())
+      syncAppointmentDialogPresentation()
     }
 
     function appointmentCustomerChanges(customer, nameValue, phoneValue) {
@@ -35114,6 +35060,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.conversations.unshift(conversation)
       }
       const reminderMessage = els.appointmentOpenChat.dataset.reminderMessage || buildAppointmentReminderMessage(editingAgendaAppointment(), conversationDisplayName(conversation))
+      if (!await ensureAppointmentDraftSaved()) return
       closeAppointmentDialog()
       setSection('conversations')
       await selectConversation(conversation.id)
@@ -35150,8 +35097,102 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       )
     }
 
-    async function saveManualAppointment(event) {
-      event.preventDefault()
+    function restorePendingManualAppointmentDraft() {
+      const pending = readPendingManualAppointmentCreation()
+      if (!pending) return false
+      try {
+        const draft = JSON.parse(pending.draft)
+        const fields = { startAt: 'appointmentStart', professionalId: 'appointmentProfessional', serviceId: 'appointmentService', customerId: 'appointmentCustomer', customerName: 'appointmentCustomerName', customerPhone: 'appointmentCustomerPhone', notes: 'appointmentNotes', attentionColor: 'appointmentAttentionColor' }
+        els.appointmentProfessional.value = draft.professionalId || ''
+        renderAppointmentServiceOptions(draft.serviceId)
+        for (const [key, field] of Object.entries(fields)) els[field].value = draft[key] || ''
+        if (draft.createPayment && state.cashRegister) {
+          state.cashRegister.createFinance = draft.createPayment.actions
+          for (const [id, value] of draft.createPayment.fields || []) { const field = document.getElementById(id); if (field) field.value = value }
+          ${cashRegisterEnabled ? 'syncCreateAppointmentPayment()' : ''}
+        }
+        els.appointmentFeedback.textContent = 'Un turno anterior quedó pendiente de confirmación. Al guardar reintentaremos esa misma operación.'
+        els.appointmentSubmit.textContent = 'Confirmar turno pendiente'
+        return true
+      } catch { return false }
+    }
+
+    function pendingManualAppointmentCreationKey() {
+      return 'weex:appointment-create:' + JSON.stringify([state.currentUser?.id || null, state.businessId])
+    }
+
+    function readPendingManualAppointmentCreation() {
+      const key = pendingManualAppointmentCreationKey()
+      const memory = state.pendingManualAppointmentCreations ||= {}
+      if (memory[key]) return memory[key]
+      try { const stored = JSON.parse(sessionStorage.getItem(key) || 'null'); if (stored?.payload?.requestId) return memory[key] = stored } catch {}
+      return null
+    }
+
+    function writePendingManualAppointmentCreation(intent, key = pendingManualAppointmentCreationKey()) {
+      const memory = state.pendingManualAppointmentCreations ||= {}
+      if (intent) memory[key] = intent
+      else delete memory[key]
+      try { if (intent) sessionStorage.setItem(key, JSON.stringify(intent)); else sessionStorage.removeItem(key) } catch {}
+    }
+
+    async function finishSavedManualAppointment(savedAppointment, appointment, options = {}, businessId = state.businessId, workspaceVersion = crmWorkspaceVersion) {
+      if (businessId !== state.businessId || workspaceVersion !== crmWorkspaceVersion) return null
+      const savedAppointmentId = savedAppointment?.id || appointment?.id
+      if (!savedAppointmentId) throw new Error('No se pudo identificar el turno guardado.')
+      const replayed = savedAppointment.replayed === true
+      if (replayed) {
+        const params = new URLSearchParams({ businessId, appointmentId: savedAppointmentId })
+        const rows = await getJson('/appointments?' + params.toString())
+        if (businessId !== state.businessId || workspaceVersion !== crmWorkspaceVersion) return null
+        savedAppointment = rows.find((item) => item.id === savedAppointmentId)
+        if (!savedAppointment) throw new Error('El turno ya se había guardado, pero ya no está disponible en esta agenda.')
+        ${cashRegisterEnabled ? "if (canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts')) savedAppointment.financeSummary = await fetchAppointmentFinanceSummary(savedAppointmentId)" : ''}
+      }
+      const result = { ...appointment, ...savedAppointment }
+      result.customer ||= state.customers.find((item) => item.id === result.customerId)
+      result.professional ||= state.professionals.find((item) => item.id === result.professionalId)
+      result.service ||= state.services.find((item) => item.id === result.serviceId)
+      state.editingAppointmentId = savedAppointmentId
+      state.editingAppointmentSnapshot = result
+      ${cashRegisterEnabled ? 'delete state.cashRegister.appointmentFinanceCache[appointmentFinanceCacheKey(savedAppointmentId)]; state.cashRegister.appointmentFinance = null' : ''}
+      applyAgendaAppointmentResult(savedAppointmentId, result)
+      captureAppointmentDraft()
+      if (!options.keepOpen) closeAppointmentDialog()
+      else { syncAppointmentDialogPresentation(result); renderAppointmentVisitServices(result) }
+      if (!replayed) void refreshAgendaAppointment(savedAppointmentId).catch((error) => showCrmToast('El turno se guardó. No pudimos actualizar su vista: ' + error.message, 'error'))
+      if (state.selected) void loadAppointments().then(() => renderAppointments()).catch(console.error)
+      return result
+    }
+
+    async function retryPendingManualAppointmentCreation(intent, options = {}) {
+      const businessId = state.businessId
+      const workspaceVersion = crmWorkspaceVersion
+      const key = pendingManualAppointmentCreationKey()
+      setButtonLoading(els.appointmentSubmit, true, 'Confirmando turno...')
+      try {
+        const result = await getJson('/appointments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(intent.payload) })
+        writePendingManualAppointmentCreation(null, key)
+        return await finishSavedManualAppointment(result, null, options, businessId, workspaceVersion)
+      } catch (error) {
+        if (error.status && error.status < 500) writePendingManualAppointmentCreation(null, key)
+        if (businessId === state.businessId && workspaceVersion === crmWorkspaceVersion) els.appointmentFeedback.textContent = error.message + (error.status && error.status < 500 ? ' La operación fue rechazada. Revisá los datos antes de volver a guardar.' : ' El turno anterior sigue pendiente de confirmación; reintentaremos la misma operación.')
+        return null
+      } finally { setButtonLoading(els.appointmentSubmit, false) }
+    }
+
+    async function saveManualAppointment(event, options = {}) {
+      event?.preventDefault()
+      if (state.appointmentSaveInFlight) return state.appointmentSaveInFlight
+      const pending = !state.editingAppointmentId && readPendingManualAppointmentCreation()
+      const saving = pending ? retryPendingManualAppointmentCreation(pending, options) : persistManualAppointment(event, options)
+      state.appointmentSaveInFlight = saving
+      try { return await saving } finally { if (state.appointmentSaveInFlight === saving) state.appointmentSaveInFlight = null }
+    }
+
+    async function persistManualAppointment(event, options = {}) {
+      event?.preventDefault()
+      ${cashRegisterEnabled ? "if (state.editingAppointmentId && readPendingAppointmentPayment()) { els.appointmentFeedback.textContent = 'Confirmá primero el cobro pendiente antes de guardar otros cambios.'; return null }" : ''}
       const saveBusinessId = state.businessId
       const saveWorkspaceVersion = crmWorkspaceVersion
       const isSaveContextCurrent = () => state.businessId === saveBusinessId && crmWorkspaceVersion === saveWorkspaceVersion
@@ -35172,7 +35213,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const professionalId = els.appointmentProfessional.value
       const serviceId = els.appointmentService.value
       let force = false
-      const manualDepositPaid = ${cashRegisterEnabled ? 'false' : 'els.appointmentDepositPaid.checked'}
+      const manualDepositPaid = ${cashRegisterEnabled ? 'editingAgendaAppointment()?.manualDepositPaid === true' : 'els.appointmentDepositPaid.checked'}
       const manualDepositAmountText = els.appointmentDepositAmount.value.trim()
       const manualDepositAmount = manualDepositAmountText ? Number(manualDepositAmountText) : null
       const notes = els.appointmentNotes.value.trim()
@@ -35255,15 +35296,24 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         attentionColor
       })
 
+      if (appointment && !appointmentChanged && !customerChanges.changed) {
+        captureAppointmentDraft()
+        if (!options.keepOpen) closeAppointmentDialog()
+        return appointment
+      }
+
       if (appointment && customerChanges.changed && !appointmentChanged) {
         if (!setButtonLoading(els.appointmentSubmit, true, 'Guardando...')) return
         try {
           const updatedCustomer = await updateAppointmentCustomer(customerId, customerChanges)
           applyUpdatedCustomerLocally(updatedCustomer)
-          closeAppointmentDialog()
+          state.editingAppointmentSnapshot = { ...appointment, customer: { ...appointment.customer, ...updatedCustomer } }
+          captureAppointmentDraft()
+          if (!options.keepOpen) closeAppointmentDialog()
           renderAgenda()
           if (state.selected) renderAppointments()
           showCrmToast('Datos del cliente actualizados.', 'success')
+          return state.editingAppointmentSnapshot || { ...appointment, customer: updatedCustomer }
         } catch (error) {
           els.appointmentFeedback.textContent = error.message
         } finally {
@@ -35322,12 +35372,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             showCrmToast('Turno presencial cargado sin teléfono. Podés completar el contacto más adelante.', 'success')
           }
           customerId = customer.id
-          if (state.currentUser?.role !== 'STAFF' || state.currentUser?.canViewCustomers === true) {
-            state.customers = await getJson(businessScopedPath('/customers'))
-          } else {
-            state.customers.push(customer)
-          }
+          applyUpdatedCustomerLocally(customer)
           renderAppointmentFormOptions()
+          els.appointmentCustomer.value = customerId
         } else if (customerId) {
           if (customerChanges.changed) {
             const updatedCustomer = await updateAppointmentCustomer(customerId, customerChanges)
@@ -35350,11 +35397,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             attentionColor,
             ...(!appointmentId && createPayment ? { payment: createPayment } : {}),
         }
-        const submitAppointment = (forceOverride) => getJson(appointmentPath, {
-          method: appointmentId ? 'PATCH' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...appointmentPayload, force: forceOverride })
-        })
+        const creationKey = pendingManualAppointmentCreationKey()
+        const creationIntent = !appointmentId ? { payload: { requestId: crypto.randomUUID() }, draft: readAppointmentDraft() } : null
+        const submitAppointment = async (forceOverride) => {
+          const payload = { ...appointmentPayload, force: forceOverride, ...(!appointmentId ? { requestId: creationIntent.payload.requestId } : {}) }
+          if (creationIntent) { creationIntent.payload = payload; writePendingManualAppointmentCreation(creationIntent, creationKey) }
+          try {
+            const result = await getJson(appointmentPath, { method: appointmentId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+            if (creationIntent) writePendingManualAppointmentCreation(null, creationKey)
+            return result
+          } catch (error) {
+            if (creationIntent && error.status && error.status < 500) writePendingManualAppointmentCreation(null, creationKey)
+            throw error
+          }
+        }
         let savedAppointment
         try {
           savedAppointment = await submitAppointment(force)
@@ -35374,17 +35430,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         }
 
         if (!isSaveContextCurrent()) return
-        closeAppointmentDialog()
-        const savedAppointmentId = savedAppointment?.id || appointmentId
-        if (savedAppointmentId) {
-          void refreshAgendaAppointment(savedAppointmentId).catch((error) => {
-            console.error('No se pudo actualizar el turno guardado en la Agenda.', error)
-            if (isSaveContextCurrent()) showCrmToast('El turno se guardó, pero no se pudo actualizar su vista. Revisá la Agenda en unos instantes.', 'error')
-          })
-        }
-        if (state.selected) {
-          void loadAppointments().then(() => renderAppointments()).catch((error) => console.error(error))
-        }
+        return await finishSavedManualAppointment(savedAppointment, appointment, options, saveBusinessId, saveWorkspaceVersion)
       } catch (error) {
         const suggestion = error.message.includes('horario') || error.message.includes('disponible') || error.message.includes('bloqueado')
           ? ' Podes marcar Turno excepcional si decidiste forzarlo manualmente.'
@@ -35452,6 +35498,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function completeManualAppointment() {
+      if (!await ensureAppointmentDraftSaved()) return
       const appointmentId = state.editingAppointmentId
       if (!appointmentId) return
       if (!canCompleteAppointments()) {
@@ -35492,6 +35539,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function toggleManualAppointmentNoShow() {
+      if (!await ensureAppointmentDraftSaved()) return
       const appointmentId = state.editingAppointmentId
       if (!appointmentId) return
       if (!canCancelAppointments()) {
@@ -40445,13 +40493,35 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       openAppointmentDialog()
     })
     els.appointmentForm.addEventListener('submit', saveManualAppointment)
+    els.appointmentForm.addEventListener('input', () => {
+      const note = document.getElementById('appointment-dirty-note')
+      if (note) note.hidden = !appointmentDraftIsDirty()
+    })
+    els.appointmentDialog.addEventListener('keydown', (event) => {
+      const checkout = document.getElementById('appointment-checkout')
+      if (checkout && !checkout.hidden) return
+      if (event.key === 'Escape') { event.preventDefault(); requestCloseAppointmentDialog() }
+      if (event.key !== 'Tab' || !els.confirmationDialog.hidden) return
+      const focusable = Array.from(els.appointmentDialog.querySelectorAll('button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex="0"]')).filter((field) => field.getClientRects().length && !field.closest('[hidden]'))
+      const first = focusable[0], last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+    })
     els.appointmentDepositPaid.addEventListener('change', syncAppointmentDepositFields)
-    els.appointmentClose.addEventListener('click', closeAppointmentDialog)
-    els.appointmentCancel.addEventListener('click', closeAppointmentDialog)
+    els.appointmentClose.addEventListener('click', requestCloseAppointmentDialog)
+    els.appointmentCancel.addEventListener('click', requestCloseAppointmentDialog)
+    document.getElementById('appointment-status-select')?.addEventListener('change', async (event) => {
+      if (event.target.value === 'COMPLETED') await completeManualAppointment()
+      else if (event.target.value === 'NO_SHOW' || editingAgendaAppointment()?.status === 'NO_SHOW' && event.target.value === 'CONFIRMED') await toggleManualAppointmentNoShow()
+      syncAppointmentDialogPresentation()
+    })
     els.appointmentDelete.addEventListener('click', deleteManualAppointment)
     els.appointmentComplete.addEventListener('click', completeManualAppointment)
     els.appointmentNoShow.addEventListener('click', toggleManualAppointmentNoShow)
     els.appointmentCustomer.addEventListener('change', syncAppointmentCustomerFields)
+    els.appointmentCustomerTechnicalProfile.addEventListener('toggle', () => {
+      if (els.appointmentCustomerTechnicalProfile.open && !els.appointmentCustomerTechnicalProfile.hidden) loadAppointmentCustomerTechnicalProfile()
+    })
     els.appointmentCustomerTechnicalProfileEdit.addEventListener('click', editAppointmentCustomerTechnicalProfile)
     els.appointmentCustomerTechnicalProfileAdd.addEventListener('click', editAppointmentCustomerTechnicalProfile)
     els.appointmentCustomerTechnicalProfileCancel.addEventListener('click', cancelAppointmentCustomerTechnicalProfileEdit)
@@ -40520,10 +40590,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.appointmentCustomerPhone.addEventListener('input', () => updateAppointmentContactActions(editingAgendaAppointment()))
     els.appointmentDialog.addEventListener('click', (event) => {
       if (event.target === els.appointmentDialog) {
-        closeAppointmentDialog()
+        requestCloseAppointmentDialog()
       }
     })
 
+    ${appointmentDialogLayoutScript}
     ${pipelineScript}
     ${cashRegisterEnabled ? cashRegisterScript : ''}
 

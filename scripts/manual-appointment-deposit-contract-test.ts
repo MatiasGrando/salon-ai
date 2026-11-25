@@ -6,7 +6,7 @@ const [schema, migration, route, ui, appointmentService] = await Promise.all([
   readFile(new URL('../prisma/schema.prisma', import.meta.url), 'utf8'),
   readFile(new URL('../prisma/migrations/20260816190000_add_manual_appointment_deposit/migration.sql', import.meta.url), 'utf8'),
   readFile(new URL('../src/routes/appointment.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8').then(async (source) => source + '\n' + await readFile(new URL('../src/routes/crm-ui/appointment-dialog.ts', import.meta.url), 'utf8')),
   readFile(new URL('../src/services/appointment-service.ts', import.meta.url), 'utf8')
 ])
 

@@ -1,4 +1,5 @@
 import { Prisma } from '../generated/prisma/client.js'
+import { authorizeAppointmentMutationActor, type AppointmentMutationActorInput, lockAppointmentMutationRequest, findAppointmentMutationRequest, createAppointmentMutationRequest, type AppointmentMutationRequestRecord } from '../services/appointment-mutation-request.js'
 import { lockCoordinatedDepositGroupForDeposit, lockCoordinatedDepositGroupForAppointment } from '../services/coordinated-deposit-group.js'
 import {
   ensureProfessionalEarningForCompletedAppointment,
@@ -199,6 +200,11 @@ export type CashExpenseSubcategoryRecord = {
 }
 
 export interface CashTransactionRepository {
+  lockAppointmentMutationRequest(businessId: string, requestId: string): Promise<void>
+  findAppointmentMutationRequest(businessId: string, requestId: string): Promise<AppointmentMutationRequestRecord | null>
+  createAppointmentMutationRequest(record: AppointmentMutationRequestRecord): Promise<void>
+  authorizeAppointmentPaymentActor(input: AppointmentMutationActorInput): Promise<boolean>
+  lockPaymentAppointment(businessId: string, appointmentId: string): Promise<boolean>
   lockBusiness(businessId: string): Promise<CashBusinessContext | null>
   findResponsible(businessId: string, userId: string): Promise<CashResponsible | null>
   findOpenDay(businessId: string): Promise<CashRegisterDayRecord | null>
@@ -260,6 +266,8 @@ export interface CashTransactionRepository {
     amount: number
   }): Promise<boolean>
   resolveAppointmentAccount(businessId: string, appointmentId: string): Promise<AppointmentAccountRecord | null>
+  listAccountAppointmentIds(businessId: string, accountId: string): Promise<string[]>
+  listVisibleAppointmentIds(businessId: string, appointmentIds: string[], professionalId?: string): Promise<string[]>
   listAppointmentFinanceSummaryRows(businessId: string, appointmentIds: string[]): Promise<AppointmentFinanceSummaryRow[]>
   lockAppointmentForProfessional(businessId: string, appointmentId: string, professionalId: string): Promise<boolean>
   lockAppointmentAccount(businessId: string, appointmentId: string): Promise<AppointmentAccountRecord | null>
@@ -444,6 +452,29 @@ export class PrismaCashRepository implements CashRepository {
 
 class PrismaCashTransactionRepository implements CashTransactionRepository {
   constructor(private readonly transaction: Prisma.TransactionClient) {}
+
+  lockAppointmentMutationRequest(businessId: string, requestId: string) {
+    return lockAppointmentMutationRequest(this.transaction, businessId, requestId)
+  }
+
+  findAppointmentMutationRequest(businessId: string, requestId: string) {
+    return findAppointmentMutationRequest(this.transaction, businessId, requestId)
+  }
+
+  createAppointmentMutationRequest(record: AppointmentMutationRequestRecord) {
+    return createAppointmentMutationRequest(this.transaction, record)
+  }
+
+  authorizeAppointmentPaymentActor(input: AppointmentMutationActorInput) {
+    return authorizeAppointmentMutationActor(this.transaction, input)
+  }
+
+  async lockPaymentAppointment(businessId: string, appointmentId: string) {
+    const rows = await this.transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id FROM "Appointment" WHERE "businessId" = ${businessId} AND id = ${appointmentId} FOR UPDATE
+    `)
+    return rows.length === 1
+  }
 
   async lockBusiness(businessId: string) {
     await this.transaction.$queryRaw<Array<{ locked: number }>>(Prisma.sql`
@@ -709,6 +740,25 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       LIMIT 1
     `)
     return rows[0] ?? null
+  }
+
+  async listAccountAppointmentIds(businessId: string, accountId: string) {
+    const rows = await this.transaction.$queryRaw<Array<{ appointmentId: string }>>(Prisma.sql`
+      SELECT "appointmentId" FROM "AppointmentAccountLink"
+      WHERE "businessId" = ${businessId} AND "accountId" = ${accountId} ORDER BY "appointmentId"
+    `)
+    return rows.map(row => row.appointmentId)
+  }
+
+  async listVisibleAppointmentIds(businessId: string, appointmentIds: string[], professionalId?: string) {
+    if (!appointmentIds.length) return []
+    const rows = await this.transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id FROM "Appointment" WHERE "businessId" = ${businessId}
+        AND id IN (${Prisma.join(appointmentIds)})
+        AND (${professionalId ?? null}::text IS NULL OR "professionalId" = ${professionalId ?? null})
+      ORDER BY id
+    `)
+    return rows.map(row => row.id)
   }
 
   async listAppointmentFinanceSummaryRows(businessId: string, appointmentIds: string[]) {

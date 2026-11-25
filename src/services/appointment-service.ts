@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma.js'
+import { authorizeAppointmentMutationActor, normalizeAppointmentRequestId, assertAppointmentMutationReplay, lockAppointmentMutationRequest, findAppointmentMutationRequest, createAppointmentMutationRequest } from './appointment-mutation-request.js'
 import { cancelAppointmentAgendaRowInTransaction } from './appointment-cancellation-write.js'
 import { Prisma } from '../generated/prisma/client.js'
 import {
@@ -72,6 +73,9 @@ type CreateAppointmentInput = {
 type AppointmentAuthorizationUser = BusinessAuthorizationUser & StaffAuthorizationUser & { name?: string }
 
 type CreateAppointmentOptions = {
+  mutationRequest?: { requestId: string; requestFingerprint: string; requirePayment?: boolean; requireDiscount?: boolean }
+  transaction?: Prisma.TransactionClient
+  afterCommit?: Array<() => Promise<void>>
   skipDefaultMarketingPreference?: boolean
   afterCreateInTransaction?: (input: {
     transaction: Prisma.TransactionClient
@@ -252,6 +256,39 @@ export class AppointmentService {
     authorizationUser?: AppointmentAuthorizationUser,
     options: CreateAppointmentOptions = {}
   ): Promise<AppointmentMutationResult> {
+    if (options.mutationRequest) {
+      if (!authorizationUser) return appointmentForbidden()
+      const requestId = normalizeAppointmentRequestId(options.mutationRequest.requestId)
+      const professional = await loadAuthorizedProfessional(prisma, authorizationUser, input.professionalId)
+      if (!professional) return appointmentNotFound()
+      if (!staffCanUseProfessional(authorizationUser, professional.id)) return appointmentForbidden()
+      const afterCommit: Array<() => Promise<void>> = []
+      const result = await prisma.$transaction(async transaction => {
+        await lockAppointmentMutationRequest(transaction, professional.businessId, requestId)
+        if (!await authorizeAppointmentMutationActor(transaction, { businessId: professional.businessId, actorUserId: authorizationUser.id,
+          operation: 'CREATE', professionalId: input.professionalId, requirePayment: options.mutationRequest!.requirePayment,
+          requireDiscount: options.mutationRequest!.requireDiscount, authorizedBusinessIdOverride: authorizationUser.authorizedBusinessIdOverride })) return appointmentForbidden()
+        const replay = await findAppointmentMutationRequest(transaction, professional.businessId, requestId)
+        if (replay) {
+          assertAppointmentMutationReplay(replay, { operation: 'CREATE', actorUserId: authorizationUser.id,
+            requestFingerprint: options.mutationRequest!.requestFingerprint })
+          await acquireAgendaHierarchy(transaction, { businessId: professional.businessId, professionalIds: [] })
+          const current = await loadAuthorizedAppointment(transaction, authorizationUser, replay.appointmentId)
+          if (!current || !staffCanUseProfessional(authorizationUser, current.professionalId)) return appointmentNotFound()
+          await lockAppointmentRows(transaction, { businessId: professional.businessId, appointmentIds: [replay.appointmentId] })
+          return { ok: true as const, appointment: { ...(replay.result as Awaited<ReturnType<typeof prisma.appointment.create>>), replayed: true } }
+        }
+        const created = await this.create(input, authorizationUser, { ...options, mutationRequest: undefined, transaction, afterCommit })
+        if (created.ok) await createAppointmentMutationRequest(transaction, {
+          businessId: professional.businessId, requestId, operation: 'CREATE', appointmentId: created.appointment.id,
+          actorUserId: authorizationUser.id, requestFingerprint: options.mutationRequest!.requestFingerprint, result: created.appointment
+        })
+        return created
+      })
+      // Existing conversation effects run only after the outer financial transaction commits.
+      for (const effect of afterCommit) await effect()
+      return result
+    }
     const startAt = new Date(input.startAt)
     const manualDeposit = normalizeManualDeposit(
       input.manualDepositPaid === true,
@@ -428,7 +465,7 @@ export class AppointmentService {
     }
 
     let transactionAvailabilityConflicts: AppointmentAvailabilityConflict[] = []
-    const appointment = await prisma.$transaction(async (transaction) => {
+    const persistAppointment = async (transaction: Prisma.TransactionClient) => {
       const validation = await revalidateBookingWrite(transaction, {
         businessId: professional.businessId,
         professionalId: input.professionalId,
@@ -501,7 +538,10 @@ export class AppointmentService {
         businessId: professional.businessId
       })
       return createdAppointment
-    })
+    }
+    const appointment = options.transaction
+      ? await persistAppointment(options.transaction)
+      : await prisma.$transaction(persistAppointment)
 
     if (appointment === 'AUTHORIZATION_CONFLICT') return appointmentConflict()
     if (appointment === 'PROFESSIONAL_INACTIVE') {
@@ -531,6 +571,7 @@ export class AppointmentService {
     }
 
     if (appointment.status === 'CONFIRMED') {
+      const convertOpportunity = async () => {
       try {
         await markConversationOpportunityConverted({
           businessId: professional.businessId,
@@ -541,6 +582,9 @@ export class AppointmentService {
       } catch (error) {
         console.error('No pude vincular el turno con la oportunidad de chat', error)
       }
+      }
+      if (options.afterCommit) options.afterCommit.push(convertOpportunity)
+      else await convertOpportunity()
     }
 
     return {
