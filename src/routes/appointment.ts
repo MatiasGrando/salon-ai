@@ -6,7 +6,7 @@ import { sendAuthorizationFailure } from '../services/authorization-response.js'
 import { authorizedAppointmentWhere } from '../services/tenant-resource-authorization.js'
 import { requireAuthorizedBusiness } from '../services/business-authorization.js'
 import { PrismaCashRepository } from '../repositories/prisma-cash-repository.js'
-import { CashService, CashServiceError } from '../services/cash-service.js'
+import { CashService, CashServiceError, standaloneNewAppointmentEvidence } from '../services/cash-service.js'
 import { appointmentRequestFingerprint, normalizeAppointmentRequestId } from '../services/appointment-mutation-request.js'
 import { hasCashPermission, type CashPermission, type StaffAuthorizationUser } from '../services/staff-permission-service.js'
 import { sendCashError } from './cash-register.js'
@@ -21,13 +21,17 @@ const defaultCashService = new CashService(new PrismaCashRepository(prisma))
 function startAppointmentActionTiming(reply: FastifyReply) {
   const timings: string[] = []
   let lastMark = performance.now()
+  const record = (phase: string, duration: number) => {
+    timings.push(phase + ';dur=' + Math.round(duration))
+  }
   const mark = (phase: string) => {
     const now = performance.now()
-    timings.push(phase + ';dur=' + Math.round(now - lastMark))
+    record(phase, now - lastMark)
     lastMark = now
   }
   return {
     mark,
+    record,
     finish: () => {
       reply.header('Server-Timing', [...timings, 'server;dur=' + Math.round(reply.elapsedTime)].join(', '))
     }
@@ -54,7 +58,11 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
 
-    const result = await service.checkManualAvailability(body, authUser)
+    const timing = startAppointmentActionTiming(reply)
+    const result = await service.checkManualAvailability(body, authUser).finally(() => {
+      timing.mark('availability')
+      timing.finish()
+    })
     if (!result.ok) return reply.status(result.statusCode).send({ message: result.message })
     return { conflicts: result.conflicts }
   })
@@ -128,6 +136,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       }
     }
 
+    const timing = startAppointmentActionTiming(reply)
     let result
     try {
       result = await service.create({
@@ -144,6 +153,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
         ...(body.attentionColor === undefined ? {} : { attentionColor: body.attentionColor }),
         ...(body.force === undefined ? {} : { force: body.force })
       }, authUser, {
+        recordTiming: timing.record,
         ...(body.requestId === undefined ? {} : { mutationRequest: {
           requestId: normalizeAppointmentRequestId(body.requestId),
           requestFingerprint: appointmentRequestFingerprint({ ...body, requestId: undefined }),
@@ -151,7 +161,8 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
         } }),
         ...(payment ? { afterCreateInTransaction: async ({ transaction, appointment, businessId }) => {
           if (businessId !== paymentBusinessId) throw new CashServiceError('BUSINESS_NOT_FOUND')
-          const transactionalCashService = new CashService(new PrismaCashRepository(transaction, true))
+          const transactionalCashService = new CashService(new PrismaCashRepository(transaction, true),
+            body.requestId === undefined ? undefined : standaloneNewAppointmentEvidence(appointment))
           if (payment.agreedAmount !== undefined) {
             await transactionalCashService.setEstimatedAppointmentTotal({
               businessId,
@@ -181,7 +192,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
             })
           }
         } } : {})
-      })
+      }).finally(timing.finish)
     } catch (error) {
       return sendCashError(reply, error)
     }

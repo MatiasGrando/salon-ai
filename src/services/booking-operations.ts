@@ -2,7 +2,7 @@ import { resolveInstagramSessionSubjectTx, lockInstagramRuntimeActorTx, runtimeC
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { coordinatedDepositOperationKey, coordinatedDepositRequestHash, coordinatedServiceConfigurationHash, matchesCoordinatedServiceConfiguration, lockCoordinatedDepositOrigin, lockCoordinatedDepositGroup, revalidateCoordinatedDepositFinancial, type CoordinatedDepositInput, type CoordinatedDepositGroup } from './coordinated-deposit-group.js'
-import { Prisma } from '../generated/prisma/client.js'
+import { Prisma, type Professional, type Service } from '../generated/prisma/client.js'
 import { reservationDurationLimits } from './service-duration.js'
 import { acquireAgendaHierarchy, lockAppointmentRows } from './agenda-locks.js'
 import { calculateBookingDepositTerms, hasCompleteDepositPaymentConfiguration } from './deposit-operations.js'
@@ -12,7 +12,8 @@ import {
   hasScheduleBlockOverlap,
   isInsideBusinessHours,
   isInsideProfessionalHours,
-  professionalOffersServices
+  professionalOffersServices,
+  readManualBookingAvailability
 } from './prisma-booking.js'
 
 export type BookingWriteConflict =
@@ -67,7 +68,7 @@ export type ConfirmBookingWithoutDepositInput = {
 
 export type HoldBookingWithDepositInput = ConfirmBookingWithoutDepositInput
 
-export async function revalidateBookingWrite(tx: Prisma.TransactionClient, input: {
+type BookingWriteInput = {
   businessId: string
   professionalId: string
   professionalIdsToLock?: readonly string[]
@@ -79,11 +80,13 @@ export async function revalidateBookingWrite(tx: Prisma.TransactionClient, input
   contractedDurationMinutes?: { professional: number; customer: number }
   timezone?: string
   dbNow?: Date
-}) {
+}
+
+export async function revalidateBookingWrite(tx: Prisma.TransactionClient, input: BookingWriteInput, recordTiming?: (phase: string, durationMs: number) => void) {
   await acquireAgendaHierarchy(tx, {
     businessId: input.businessId,
     professionalIds: input.professionalIdsToLock ?? [input.professionalId]
-  })
+  }, recordTiming)
   if (input.excludeAppointmentId) {
     await lockAppointmentRows(tx, {
       businessId: input.businessId,
@@ -100,6 +103,14 @@ export async function revalidateBookingWrite(tx: Prisma.TransactionClient, input
   if (!professional) throw new Error('Professional no longer belongs to the locked business')
   if (services.length !== input.serviceIds.length) throw new Error('Services no longer belong to the locked business')
 
+  return checkBookingWriteAvailability(tx, input, { professional, services })
+}
+
+export async function checkBookingWriteAvailability(tx: Prisma.TransactionClient, input: BookingWriteInput, resources: {
+  professional: Professional
+  services: Service[]
+}, manualCreate = false) {
+  const { professional, services } = resources
   const servicesById = new Map(services.map((service) => [service.id, service]))
   const orderedServices = input.serviceIds.map((serviceId) => servicesById.get(serviceId)!)
   const professionalDuration = input.contractedDurationMinutes?.professional ?? orderedServices.reduce(
@@ -116,34 +127,9 @@ export async function revalidateBookingWrite(tx: Prisma.TransactionClient, input
   const professionalEndAt = addMinutes(input.startAt, professionalDuration)
   const customerEndAt = addMinutes(input.startAt, customerDuration)
 
-  const offersServices = await professionalOffersServices(tx, input.professionalId, input.serviceIds)
-  const insideBusinessHours = await isInsideBusinessHours(tx, {
-    businessId: input.businessId,
-    startAt: input.startAt,
-    endAt: customerEndAt,
-    ...(input.timezone ? { timezone: input.timezone } : {})
-  })
-  const insideProfessionalHours = await isInsideProfessionalHours(tx, {
-    professionalId: input.professionalId,
-    startAt: input.startAt,
-    endAt: professionalEndAt,
-    ...(input.timezone ? { timezone: input.timezone } : {})
-  })
-  const scheduleBlock = await hasScheduleBlockOverlap(tx, {
-    businessId: input.businessId,
-    professionalId: input.professionalId,
-    startAt: input.startAt,
-    endAt: professionalEndAt
-  })
-  const appointmentOverlap = await hasAppointmentOverlap(tx, {
-    professionalId: input.professionalId,
-    startAt: input.startAt,
-    endAt: professionalEndAt,
-    ...(input.excludeAppointmentId ? { excludeAppointmentId: input.excludeAppointmentId } : {}),
-    ...(input.excludeAppointmentIds ? { excludeAppointmentIds: input.excludeAppointmentIds } : {}),
-    ...(input.overlapPolicy ? { overlapPolicy: input.overlapPolicy } : {}),
-    ...(input.dbNow ? { dbNow: input.dbNow } : {})
-  })
+  const { offersServices, insideBusinessHours, insideProfessionalHours, scheduleBlock, appointmentOverlap } = manualCreate
+    ? await readManualBookingAvailability(tx, { ...input, availabilityMode: professional.availabilityMode, professionalEndAt, customerEndAt })
+    : await readBookingAvailability(tx, input, professionalEndAt, customerEndAt)
 
   const conflicts: BookingWriteConflict[] = [
     ...(!professional.isActive ? ['PROFESSIONAL_INACTIVE' as const] : []),
@@ -162,6 +148,24 @@ export async function revalidateBookingWrite(tx: Prisma.TransactionClient, input
     customerEndAt,
     conflicts
   }
+}
+
+async function readBookingAvailability(tx: Prisma.TransactionClient, input: BookingWriteInput, professionalEndAt: Date, customerEndAt: Date) {
+  const professionalInterval = { professionalId: input.professionalId, startAt: input.startAt, endAt: professionalEndAt }
+  const offersServices = await professionalOffersServices(tx, input.professionalId, input.serviceIds)
+  const insideBusinessHours = await isInsideBusinessHours(tx, {
+    businessId: input.businessId,
+    startAt: input.startAt,
+    endAt: customerEndAt,
+    ...(input.timezone ? { timezone: input.timezone } : {})
+  })
+  const insideProfessionalHours = await isInsideProfessionalHours(tx, {
+    ...professionalInterval,
+    ...(input.timezone ? { timezone: input.timezone } : {})
+  })
+  const scheduleBlock = await hasScheduleBlockOverlap(tx, { ...professionalInterval, businessId: input.businessId })
+  const appointmentOverlap = await hasAppointmentOverlap(tx, { ...input, ...professionalInterval })
+  return { offersServices, insideBusinessHours, insideProfessionalHours, scheduleBlock, appointmentOverlap }
 }
 
 export async function revalidateAppointmentsForConfirmation(

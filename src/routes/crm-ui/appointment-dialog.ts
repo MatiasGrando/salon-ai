@@ -16,6 +16,7 @@ export const appointmentDialogStyles = `
     z-index: 1000;
   }
   #appointment-checkout { z-index: 1010; padding: 14px; }
+  body:has(#appointment-dialog:not([hidden]), #appointment-checkout:not([hidden])) #confirmation-dialog { z-index: 1020; }
   :is(#appointment-dialog, #appointment-checkout) *, :is(#appointment-dialog, #appointment-checkout) *::before, :is(#appointment-dialog, #appointment-checkout) *::after { box-sizing: border-box; }
   :is(#appointment-dialog, #appointment-checkout)[hidden], :is(#appointment-dialog, #appointment-checkout) [hidden] { display: none !important; }
   :is(#appointment-dialog, #appointment-checkout) :is(button, input, select, textarea) { font: inherit; letter-spacing: normal; }

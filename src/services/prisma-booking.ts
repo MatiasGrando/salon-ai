@@ -75,7 +75,7 @@ export async function hasScheduleBlockOverlap(tx: BookingRepositoryClient, input
   })) !== null
 }
 
-export async function hasAppointmentOverlap(tx: BookingRepositoryClient, input: {
+type AppointmentOverlapInput = {
   professionalId: string
   startAt: Date
   endAt: Date
@@ -83,7 +83,16 @@ export async function hasAppointmentOverlap(tx: BookingRepositoryClient, input: 
   excludeAppointmentIds?: readonly string[]
   overlapPolicy?: 'appointment-edit'
   dbNow?: Date
-}) {
+}
+
+export async function hasAppointmentOverlap(tx: BookingRepositoryClient, input: AppointmentOverlapInput) {
+  const rows = await tx.$queryRaw<Array<{ overlaps: boolean }>>(Prisma.sql`
+    SELECT ${appointmentOverlapExpression(input)} AS "overlaps"
+  `)
+  return rows[0]?.overlaps === true
+}
+
+function appointmentOverlapExpression(input: AppointmentOverlapInput) {
   const excludedIds = [...new Set([...(input.excludeAppointmentIds ?? []), ...(input.excludeAppointmentId ? [input.excludeAppointmentId] : [])])]
   const excluded = input.excludeAppointmentIds?.length
     ? Prisma.sql`AND a."id" NOT IN (${Prisma.join(excludedIds)})`
@@ -97,8 +106,8 @@ export async function hasAppointmentOverlap(tx: BookingRepositoryClient, input: 
   const activeHold = isAppointmentEdit ? Prisma.empty : Prisma.sql`
     AND NOT EXISTS (SELECT 1 FROM "BookingVisit" held WHERE held.id=a."visitId" AND held."businessId"=a."businessId" AND held.status='HELD'::"BookingVisitStatus" AND held."holdExpiresAt"<=${now})
   `
-  const rows = await tx.$queryRaw<Array<{ overlaps: boolean }>>(Prisma.sql`
-    SELECT EXISTS (
+  return Prisma.sql`
+    EXISTS (
       SELECT 1
       FROM "Appointment" a
       LEFT JOIN "BookingDeposit" d ON d."appointmentId" = a."id"
@@ -118,13 +127,67 @@ export async function hasAppointmentOverlap(tx: BookingRepositoryClient, input: 
             ${activeHold}
           )
         )
-    ) AS "overlaps"
+    )
+  `
+}
+
+type HoursInterval = { startTime: string; endTime: string }
+
+export async function readManualBookingAvailability(tx: BookingRepositoryClient, input: {
+  businessId: string
+  professionalId: string
+  serviceIds: readonly string[]
+  availabilityMode: string
+  startAt: Date
+  professionalEndAt: Date
+  customerEndAt: Date
+}) {
+  const businessInterval = localInterval(input.startAt, input.customerEndAt)
+  const professionalInterval = localInterval(input.startAt, input.professionalEndAt)
+  const usesPublishedHours = input.availabilityMode === 'MANUAL'
+  const [row] = await tx.$queryRaw<Array<{
+    offersServices: boolean
+    businessHours: HoursInterval[]
+    professionalHours: HoursInterval[]
+    scheduleBlock: boolean
+    overlaps: boolean
+  }>>(Prisma.sql`
+    SELECT
+      (SELECT count(*) = ${input.serviceIds.length} FROM "ProfessionalService"
+        WHERE "professionalId" = ${input.professionalId} AND "serviceId" IN (${Prisma.join(input.serviceIds)})) AS "offersServices",
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('startTime', "startTime", 'endTime', "endTime"))
+        FROM "BusinessHours" WHERE "businessId" = ${input.businessId}
+          AND "dayOfWeek" = ${businessInterval?.weekday ?? null}::integer), '[]'::jsonb) AS "businessHours",
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('startTime', "startTime", 'endTime', "endTime"))
+        FROM "ProfessionalHours" WHERE "professionalId" = ${input.professionalId}
+          AND "dayOfWeek" = ${!usesPublishedHours ? professionalInterval?.weekday ?? null : null}::integer), '[]'::jsonb) AS "professionalHours",
+      EXISTS (SELECT 1 FROM "ScheduleBlock" WHERE "businessId" = ${input.businessId}
+        AND ("professionalId" = ${input.professionalId} OR "professionalId" IS NULL)
+        AND "startAt" < ${input.professionalEndAt} AND "endAt" > ${input.startAt}) AS "scheduleBlock",
+      ${appointmentOverlapExpression({
+        professionalId: input.professionalId,
+        startAt: input.startAt,
+        endAt: input.professionalEndAt,
+        overlapPolicy: 'appointment-edit'
+      })} AS "overlaps"
   `)
-  return rows[0]?.overlaps === true
+  if (!row) throw new Error('Could not read booking availability')
+  const insideProfessionalHours = usesPublishedHours
+    ? await insidePublishedProfessionalHours(tx, { ...input, endAt: input.professionalEndAt })
+    : null
+  return {
+    offersServices: row.offersServices,
+    insideBusinessHours: Boolean(businessInterval &&
+      containsMinuteInterval(row.businessHours, businessInterval.startMinute, businessInterval.endMinute)),
+    insideProfessionalHours: insideProfessionalHours ?? Boolean(professionalInterval &&
+      containsMinuteInterval(row.professionalHours, professionalInterval.startMinute, professionalInterval.endMinute)),
+    scheduleBlock: row.scheduleBlock,
+    appointmentOverlap: row.overlaps
+  }
 }
 
 function containsMinuteInterval(
-  hours: Array<{ startTime: string; endTime: string }>,
+  hours: HoursInterval[],
   start: number,
   end: number
 ) {

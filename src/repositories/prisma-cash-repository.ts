@@ -673,12 +673,13 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     originalAmount: number | null
     minimumAmount: number
   }) {
-    const inserted = await this.transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    const inserted = await this.transaction.$queryRaw<AppointmentAccountRecord[]>(Prisma.sql`
       INSERT INTO "AppointmentAccount" ("id", "businessId", "pricingMode", "agreedAmount", "originalAmount", "minimumAmount", "updatedAt")
       VALUES (${input.id}, ${input.businessId}, ${input.pricingMode}::"AppointmentPricingMode", ${input.agreedAmount}, ${input.originalAmount}, ${input.minimumAmount}, clock_timestamp())
       ON CONFLICT ("id") DO NOTHING
-      RETURNING "id"
+      RETURNING "id", "businessId", "pricingMode"::text AS "pricingMode", "agreedAmount", "originalAmount", "minimumAmount", "discountAmount"
     `)
+    if (inserted[0]) return { account: inserted[0], created: true }
     const rows = await this.transaction.$queryRaw<AppointmentAccountRecord[]>(Prisma.sql`
       SELECT "id", "businessId", "pricingMode"::text AS "pricingMode", "agreedAmount", "originalAmount", "minimumAmount", "discountAmount"
       FROM "AppointmentAccount"
@@ -686,7 +687,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       FOR SHARE
     `)
     if (!rows[0]) throw new Error('appointment account id collision outside tenant')
-    return { account: rows[0], created: inserted.length === 1 }
+    return { account: rows[0], created: false }
   }
 
   async ensureAppointmentAccountLink(input: { businessId: string; appointmentId: string; accountId: string }) {
@@ -696,6 +697,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       ON CONFLICT ("appointmentId") DO NOTHING
       RETURNING "appointmentId"
     `)
+    if (inserted[0]) return { linked: true, created: true }
     const rows = await this.transaction.$queryRaw<Array<{ businessId: string; accountId: string }>>(Prisma.sql`
       SELECT "businessId", "accountId"
       FROM "AppointmentAccountLink"
@@ -704,7 +706,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     `)
     return {
       linked: rows[0]?.businessId === input.businessId && rows[0]?.accountId === input.accountId,
-      created: inserted.length === 1
+      created: false
     }
   }
 

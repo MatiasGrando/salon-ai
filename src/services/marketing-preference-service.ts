@@ -27,20 +27,13 @@ export async function ensureDefaultMarketingPreference(input: {
   businessId: string
   customerId: string
 }, client: Pick<PrismaClient, 'customerMarketingPreference'> | Pick<Prisma.TransactionClient, 'customerMarketingPreference'> = prisma) {
-  const defaults = defaultMarketingPreferenceData()
-  return client.customerMarketingPreference.upsert({
-    where: {
-      businessId_customerId: {
-        businessId: input.businessId,
-        customerId: input.customerId
-      }
-    },
-    create: {
+  return client.customerMarketingPreference.createMany({
+    data: {
       businessId: input.businessId,
       customerId: input.customerId,
-      ...defaults
+      ...defaultMarketingPreferenceData()
     },
-    update: {}
+    skipDuplicates: true
   })
 }
 

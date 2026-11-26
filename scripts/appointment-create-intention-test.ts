@@ -9,6 +9,7 @@ let posts: any[] = [], saves = 0, finishes = 0, reject = false, rejectionStatus 
 const state: any = { currentUser: { id: 'u' }, businessId: 'b', editingAppointmentId: null }
 const context: any = vm.createContext({ state, JSON, Boolean, sessionStorage: { getItem: (k: string) => storage.get(k) || null, setItem: (k: string,v: string) => storage.set(k,v), removeItem: (k: string) => storage.delete(k) }, persistManualAppointment: async () => { saves++; return { id: 'new' } }, finishSavedManualAppointment: async () => { finishes++; return { id: 'new' } }, els: { appointmentFeedback: { textContent: '' }, appointmentSubmit: {} }, setButtonLoading() {}, crmWorkspaceVersion: 1, getJson: async (path: string, options: any) => { posts.push(JSON.parse(options.body)); if (reject) throw Object.assign(new Error('timeout'), { status: rejectionStatus }); return { id: 'new', replayed: true } } })
 vm.runInContext(names.map(fn).join('\n'), context)
+context.agendaTiming = null
 const original = { payload: { customerId: 'c', requestId: 'stable', force: false, payment: { lines: [{ amount: 20, paymentMethodId: 'cash' }] } }, draft: '{}' }
 context.writePendingManualAppointmentCreation(original)
 reject = true

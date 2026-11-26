@@ -14,7 +14,7 @@ assert.match(route, /payment\?:\s*\{[\s\S]*cashSessionId\?: string[\s\S]*lines\?
 assert.match(route, /hasPaymentLines[\s\S]*hasCashPermission\(authUser, 'canRecordAppointmentPayments'\)/)
 assert.match(route, /hasDiscount[\s\S]*hasCashPermission\(authUser, 'canApplyDiscounts'\)/)
 assert.match(route, /if \(hasPaymentLines && !payment\?\.cashSessionId\?\.trim\(\)\)/, 'un descuento sin cobro no debe exigir sesión de Caja')
-assert.match(route, /new CashService\(new PrismaCashRepository\(transaction, true\)\)/)
+assert.match(route, /new CashService\(\s*new PrismaCashRepository\(transaction, true\),\s*body\.requestId === undefined \? undefined : standaloneNewAppointmentEvidence\(appointment\)/)
 assert.match(route, /afterCreateInTransaction:/)
 assert.match(route, /origin: 'AGENDA'/)
 assert.match(route, /setAppointmentDiscount\([\s\S]*recordAppointmentPayment\(/, 'el descuento debe aplicarse antes de registrar los pagos')

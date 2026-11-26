@@ -16,6 +16,7 @@ import { instagramPlanningMarkup, instagramPlanningScript, instagramPlanningStyl
 import { instagramStoriesMarkup, instagramStoriesScript, instagramStoriesStyles } from './crm-ui/instagram-stories.js'
 import { bookingEmailMediaMarkup, bookingEmailMediaScript, bookingEmailMediaStyles } from './crm-ui/booking-email-media.js'
 import { bookingProgramsMarkup, bookingProgramsScript, bookingProgramsStyles } from './crm-ui/booking-programs.js'
+import { agendaTimingScript } from './crm-ui/agenda-timing.js'
 
 export interface CrmUiRoutesOptions {
   readonly pollingMarker: PollingMarkerConfig
@@ -20383,6 +20384,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
   <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
   <script>
+    ${agendaTimingScript}
     const filterAssignedServices = ${filterAssignedServices.toString()}
     const appendPreferredEmojiValue = ${appendPreferredEmoji.toString()}
     const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -22483,17 +22485,22 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return { ...requestInit, headers }
     }
 
-    async function getJson(url, options = {}) {
-      const response = await fetch(url, buildGetJsonRequestOptions(options))
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}))
-        if (response.status === 401 && !url.startsWith('/auth/')) showLogin()
-        const error = new Error(body.message || 'Error de servidor')
-        error.body = body
-        error.status = response.status
-        throw error
+    async function getJson(url, options = {}, onResponse) {
+      let response
+      try {
+        response = await fetch(url, buildGetJsonRequestOptions(options))
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}))
+          if (response.status === 401 && !url.startsWith('/auth/')) showLogin()
+          const error = new Error(body.message || 'Error de servidor')
+          error.body = body
+          error.status = response.status
+          throw error
+        }
+        return await response.json()
+      } finally {
+        onResponse?.(response)
       }
-      return response.json()
     }
 
     function setButtonLoading(button, loading, loadingText = 'Cargando...') {
@@ -35184,8 +35191,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const workspaceVersion = crmWorkspaceVersion
       const key = pendingManualAppointmentCreationKey()
       setButtonLoading(els.appointmentSubmit, true, 'Confirmando turno...')
+      options.timing?.scenario(intent.payload.payment?.lines?.length ? 'with-payment' : 'without-payment')
+      options.timing?.mark('feedback')
       try {
-        const result = await getJson('/appointments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(intent.payload) })
+        const result = await getJson('/appointments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(intent.payload) }, options.timing?.request('save'))
         writePendingManualAppointmentCreation(null, key)
         return await finishSavedManualAppointment(result, null, options, businessId, workspaceVersion)
       } catch (error) {
@@ -35199,9 +35208,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       event?.preventDefault()
       if (state.appointmentSaveInFlight) return state.appointmentSaveInFlight
       const pending = !state.editingAppointmentId && readPendingManualAppointmentCreation()
-      const saving = pending ? retryPendingManualAppointmentCreation(pending, options) : persistManualAppointment(event, options)
+      const timing = agendaTiming?.start(pending ? 'appointment-retry' : state.editingAppointmentId ? 'appointment-edit' : 'appointment-create')
+      const saveOptions = timing ? { ...options, timing } : options
+      const saving = pending ? retryPendingManualAppointmentCreation(pending, saveOptions) : persistManualAppointment(event, saveOptions)
       state.appointmentSaveInFlight = saving
-      try { return await saving } finally { if (state.appointmentSaveInFlight === saving) state.appointmentSaveInFlight = null }
+      let result
+      try {
+        result = await saving
+        return result
+      } finally {
+        if (state.appointmentSaveInFlight === saving) state.appointmentSaveInFlight = null
+        timing?.finish(result ? 'saved' : 'incomplete', result?.id && !options.keepOpen
+          ? () => els.appShell.dataset.section === 'agenda' && Boolean(els.agendaGridWrap.querySelector('[data-appointment-id="' + CSS.escape(result.id) + '"]'))
+          : undefined)
+      }
     }
 
     async function persistManualAppointment(event, options = {}) {
@@ -35281,6 +35301,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           els.appointmentFeedback.textContent = error.message
           return
         }
+        options.timing?.scenario(createPayment?.lines?.length ? 'with-payment' : 'without-payment')
       }
 
       if (
@@ -35336,29 +35357,36 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
 
-      let availability
-      try {
-        availability = await getJson('/appointments/check-availability', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            professionalId,
-            serviceId,
-            serviceIds: selectedServiceIds,
-            startAt: new Date(startAt).toISOString(),
-            ...(state.editingAppointmentId ? { appointmentId: state.editingAppointmentId } : {})
-          })
-        })
-      } catch (error) {
-        els.appointmentFeedback.textContent = error.message
-        return
-      }
+      // Check before a separate customer write. A new turn for an existing,
+      // unchanged customer can use the availability result from POST /appointments.
+      const needsAvailabilityPrecheck = Boolean(appointment) ||
+        (!customerId && !resolveExistingCustomerByPhone) || customerChanges.changed
+      if (needsAvailabilityPrecheck) {
+        let availability
+        try {
+          availability = await getJson('/appointments/check-availability', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              professionalId,
+              serviceId,
+              serviceIds: selectedServiceIds,
+              startAt: new Date(startAt).toISOString(),
+              ...(state.editingAppointmentId ? { appointmentId: state.editingAppointmentId } : {})
+            })
+          }, options.timing?.request('availability'))
+        } catch (error) {
+          if (isSaveContextCurrent()) els.appointmentFeedback.textContent = error.message
+          return
+        }
+        if (!isSaveContextCurrent()) return
 
-      const conflicts = Array.isArray(availability.conflicts) ? availability.conflicts : []
-      if (conflicts.length) {
-        const confirmedOverride = await confirmManualAppointmentOverride(conflicts, { startAt, professionalId, serviceId })
-        if (!confirmedOverride) return
-        force = true
+        const conflicts = Array.isArray(availability.conflicts) ? availability.conflicts : []
+        if (conflicts.length) {
+          const confirmedOverride = await confirmManualAppointmentOverride(conflicts, { startAt, professionalId, serviceId })
+          if (!confirmedOverride || !isSaveContextCurrent()) return
+          force = true
+        }
       }
 
       if (!setButtonLoading(
@@ -35366,6 +35394,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         true,
         state.editingAppointmentId ? 'Guardando...' : 'Creando turno...'
       )) return
+      options.timing?.mark('feedback')
       try {
         if (!customerId && !resolveExistingCustomerByPhone) {
           const name = els.appointmentCustomerName.value.trim()
@@ -35379,7 +35408,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, phone, businessId: state.businessId })
-          })
+          }, options.timing?.request('customer-create'))
           if (customer.wasExisting) {
             showCrmToast('Ese teléfono ya pertenece a ' + customer.name + '. El turno se cargará en su ficha existente.', 'success')
           } else if (customer.isProvisional) {
@@ -35417,7 +35446,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           const payload = { ...appointmentPayload, force: forceOverride, ...(!appointmentId ? { requestId: creationIntent.payload.requestId } : {}) }
           if (creationIntent) { creationIntent.payload = payload; writePendingManualAppointmentCreation(creationIntent, creationKey) }
           try {
-            const result = await getJson(appointmentPath, { method: appointmentId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+            const result = await getJson(appointmentPath, { method: appointmentId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, options.timing?.request('save'))
             if (creationIntent) writePendingManualAppointmentCreation(null, creationKey)
             return result
           } catch (error) {

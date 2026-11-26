@@ -9,10 +9,13 @@ import { ensureAppointmentAccountForPayment } from './cash-service.js'
 export type BenefitPlanInput = { name: string; kind: string; serviceIds: string[]; serviceRules?: MembershipServiceInput[]; totalUses: number | null; discountPercent: number; price: number; validityDays: number; cancellationHours: number; consumeLateCancellation: boolean; consumeNoShow: boolean; isActive?: boolean }
 function fail(code: string, message: string): never { throw new BookingProgramError(code, message) }
 function int(value: number, min: number, max: number) { return Number.isSafeInteger(value) && value >= min && value <= max }
-async function lockBenefitBusiness(tx: Prisma.TransactionClient, businessId: string) {
-  await acquireBusinessAgendaLock(tx, businessId)
+async function lockBenefitBusiness(tx: Prisma.TransactionClient, businessId: string, agendaBusinessLocked = false) {
+  if (!agendaBusinessLocked) await acquireBusinessAgendaLock(tx, businessId)
   // Match the cash ledger's Business -> session/account lock order.
-  await tx.$queryRaw(Prisma.sql`SELECT id FROM "Business" WHERE id=${businessId} FOR UPDATE`)
+  const [business] = await tx.$queryRaw<Array<{ timezone: string | null }>>(
+    Prisma.sql`SELECT timezone FROM "Business" WHERE id=${businessId} FOR UPDATE`
+  )
+  return business?.timezone || DEFAULT_BOOKING_TIMEZONE
 }
 
 export class CustomerBenefitsService {
@@ -94,10 +97,21 @@ export class CustomerBenefitsService {
 
 // Called only with a CRM-authorized customer, a verified web account or a trusted bot identity.
 // An unverified phone typed into a guest form never selects a benefit.
-export async function reserveBenefit(tx: Prisma.TransactionClient, input: { businessId: string; customerId: string; appointmentId: string; benefitId?: string; optional?: boolean }) {
-  await lockBenefitBusiness(tx, input.businessId)
-  const appointment = await tx.appointment.findFirst({ where: { id: input.appointmentId, businessId: input.businessId, customerId: input.customerId }, include: { service: true, serviceItems: true, benefitUse: true, bookingDeposit: true } })
-  if (!appointment) fail('APPOINTMENT_NOT_FOUND', 'No encontre ese turno para el cliente.')
+export async function reserveBenefit(
+  tx: Prisma.TransactionClient,
+  input: { businessId: string; customerId: string; appointmentId: string; benefitId?: string; optional?: boolean },
+  justCreated?: Prisma.AppointmentGetPayload<{ include: { serviceItems: true } }>,
+  agendaBusinessLocked = false
+) {
+  const zone = await lockBenefitBusiness(tx, input.businessId, agendaBusinessLocked)
+  // Only the creating caller can pass a fresh result from this transaction,
+  // before a deposit or coverage has been attached to it.
+  const appointment = justCreated?.serviceItems.length
+    ? { ...justCreated, service: null, benefitUse: null, bookingDeposit: null }
+    : await tx.appointment.findFirst({ where: { id: input.appointmentId, businessId: input.businessId, customerId: input.customerId }, include: { service: true, serviceItems: true, benefitUse: true, bookingDeposit: true } })
+  if (!appointment || appointment.id !== input.appointmentId || appointment.businessId !== input.businessId || appointment.customerId !== input.customerId) {
+    fail('APPOINTMENT_NOT_FOUND', 'No encontre ese turno para el cliente.')
+  }
   if (appointment.benefitUse) {
     if (input.benefitId && appointment.benefitUse.benefitId !== input.benefitId) fail('BENEFIT_ALREADY_APPLIED', 'El turno ya tiene otro beneficio.')
     return appointment.benefitUse
@@ -106,10 +120,9 @@ export async function reserveBenefit(tx: Prisma.TransactionClient, input: { busi
     if (input.optional) return null
     fail('BENEFIT_PAYMENT_CONFLICT', 'Aplica el beneficio antes de cobrar una sena o realizar el servicio.')
   }
-  const zone = (await tx.business.findUniqueOrThrow({ where: { id: input.businessId }, select: { timezone: true } })).timezone || DEFAULT_BOOKING_TIMEZONE
   const date = localParts(appointment.startAt, zone).date
   const ids = appointment.serviceItems.length ? appointment.serviceItems.map(s => s.serviceId) : [appointment.serviceId]
-  const items = appointment.serviceItems.length ? appointment.serviceItems : [{ serviceId: appointment.serviceId, price: appointment.quotedPrice ?? appointment.service.price }]
+  const items = appointment.serviceItems.length ? appointment.serviceItems : [{ serviceId: appointment.serviceId, price: appointment.quotedPrice ?? appointment.service?.price ?? null }]
   const grants = await tx.customerBenefit.findMany({ where: { businessId: input.businessId, customerId: input.customerId, ...(input.benefitId ? { id: input.benefitId } : {}), startsOn: { lte: date }, endsOn: { gte: date }, cashEntry: { reversedBy: null } }, include: { uses: { where: { state: { in: ['RESERVED', 'CONSUMED'] } } } }, orderBy: [{ endsOn: 'asc' }, { id: 'asc' }] })
   const grant = grants.find(g => membershipServices(g.serviceRules).length ? allocateMembership(g, items).length > 0 : ids.every(id => g.serviceIds.includes(id)) && (g.totalUses === null || ids.length === 1 && g.uses.length < g.totalUses))
   if (!grant) {

@@ -52,9 +52,13 @@ export async function acquireProfessionalAgendaLocks(
 
 export async function acquireAgendaHierarchy(
   tx: Prisma.TransactionClient,
-  input: { businessId: string; professionalIds?: readonly string[] }
+  input: { businessId: string; professionalIds?: readonly string[] },
+  recordTiming?: (phase: string, durationMs: number) => void
 ) {
+  const businessLockStart = recordTiming ? performance.now() : 0
   await acquireBusinessAgendaLock(tx, input.businessId)
+  recordTiming?.('agenda-business-lock', performance.now() - businessLockStart)
+  const professionalLocksStart = recordTiming ? performance.now() : 0
   const professionalIds = input.professionalIds === undefined
     ? await tx.professional.findMany({
         where: { businessId: input.businessId },
@@ -62,10 +66,12 @@ export async function acquireAgendaHierarchy(
         orderBy: { id: 'asc' }
       }).then((rows) => rows.map((row) => row.id))
     : input.professionalIds
-  return acquireProfessionalAgendaLocks(tx, {
+  const locked = await acquireProfessionalAgendaLocks(tx, {
     businessId: input.businessId,
     professionalIds
   })
+  recordTiming?.('agenda-professional-locks', performance.now() - professionalLocksStart)
+  return locked
 }
 
 export async function lockAppointmentRows(

@@ -35,7 +35,7 @@ import {
   type StaffAuthorizationUser
 } from './staff-permission-service.js'
 import { acquireBusinessAgendaLock, acquireAgendaHierarchy, lockAppointmentRows } from './agenda-locks.js'
-import { revalidateBookingWrite } from './booking-operations.js'
+import { checkBookingWriteAvailability, revalidateBookingWrite } from './booking-operations.js'
 import { createAppointmentRecord, updateAppointmentRecord } from './prisma-booking.js'
 import { ensureProfessionalEarningForCompletedAppointment } from './professional-compensation.js'
 import { insidePublishedProfessionalHours } from './weekly-availability.js'
@@ -80,13 +80,16 @@ type AppointmentAuthorizationUser = BusinessAuthorizationUser & StaffAuthorizati
 type CreateAppointmentOptions = {
   mutationRequest?: { requestId: string; requestFingerprint: string; requirePayment?: boolean; requireDiscount?: boolean }
   transaction?: Prisma.TransactionClient
+  agendaCreateBusinessId?: string
   afterCommit?: Array<() => Promise<void>>
   useCustomerBenefits?: boolean
   canReceiveDeposit?: boolean
   skipDefaultMarketingPreference?: boolean
+  recordTiming?: (phase: string, durationMs: number) => void
   afterCreateInTransaction?: (input: {
     transaction: Prisma.TransactionClient
-    appointment: Awaited<ReturnType<typeof prisma.appointment.create>>
+    appointment: Awaited<ReturnType<typeof prisma.appointment.create>> &
+      Partial<Pick<Prisma.AppointmentGetPayload<{ include: { serviceItems: { include: { service: true } } } }>, 'serviceItems'>>
     businessId: string
   }) => Promise<void>
 }
@@ -267,12 +270,18 @@ export class AppointmentService {
     if (options.mutationRequest) {
       if (!authorizationUser) return appointmentForbidden()
       const requestId = normalizeAppointmentRequestId(options.mutationRequest.requestId)
+      const precheckStart = performance.now()
       const professional = await loadAuthorizedProfessional(prisma, authorizationUser, input.professionalId)
+      options.recordTiming?.('professional-access', performance.now() - precheckStart)
       if (!professional) return appointmentNotFound()
       if (!staffCanUseProfessional(authorizationUser, professional.id)) return appointmentForbidden()
       const afterCommit: Array<() => Promise<void>> = []
+      const transactionStart = performance.now()
       const result = await prisma.$transaction(async transaction => {
+        options.recordTiming?.('transaction-open', performance.now() - transactionStart)
+        const requestLockStart = performance.now()
         await lockAppointmentMutationRequest(transaction, professional.businessId, requestId)
+        options.recordTiming?.('request-lock', performance.now() - requestLockStart)
         if (!await authorizeAppointmentMutationActor(transaction, { businessId: professional.businessId, actorUserId: authorizationUser.id,
           operation: 'CREATE', professionalId: input.professionalId, requirePayment: options.mutationRequest!.requirePayment,
           requireDiscount: options.mutationRequest!.requireDiscount, authorizedBusinessIdOverride: authorizationUser.authorizedBusinessIdOverride })) return appointmentForbidden()
@@ -286,15 +295,21 @@ export class AppointmentService {
           await lockAppointmentRows(transaction, { businessId: professional.businessId, appointmentIds: [replay.appointmentId] })
           return { ok: true as const, appointment: { ...(replay.result as Awaited<ReturnType<typeof prisma.appointment.create>>), replayed: true } }
         }
-        const created = await this.create(input, authorizationUser, { ...options, mutationRequest: undefined, transaction, afterCommit })
+        const created = await this.create(input, authorizationUser, {
+          ...options, mutationRequest: undefined, transaction, afterCommit, agendaCreateBusinessId: professional.businessId
+        })
         if (created.ok) await createAppointmentMutationRequest(transaction, {
           businessId: professional.businessId, requestId, operation: 'CREATE', appointmentId: created.appointment.id,
           actorUserId: authorizationUser.id, requestFingerprint: options.mutationRequest!.requestFingerprint, result: created.appointment
         })
         return created
-      }, AGENDA_CREATE_TRANSACTION_OPTIONS)
+      }, AGENDA_CREATE_TRANSACTION_OPTIONS).finally(() => {
+        options.recordTiming?.('transaction', performance.now() - transactionStart)
+      })
       // Existing conversation effects run only after the outer financial transaction commits.
+      const effectsStart = performance.now()
       for (const effect of afterCommit) await effect()
+      options.recordTiming?.('after-commit', performance.now() - effectsStart)
       return result
     }
     const startAt = new Date(input.startAt)
@@ -337,18 +352,25 @@ export class AppointmentService {
       }
     }
 
+    const agendaCreate = options.transaction && options.agendaCreateBusinessId
+      ? { transaction: options.transaction, businessId: options.agendaCreateBusinessId }
+      : null
     const existingPhoneCustomer = input.customerPhone !== undefined
     if (existingPhoneCustomer) {
       if (input.customerId) {
         return { ok: false, statusCode: 400, message: 'Elegí un cliente o ingresá su teléfono, no ambos' }
       }
       if (!authorizationUser) return appointmentForbidden()
-      const professional = await loadAuthorizedProfessional(prisma, authorizationUser, input.professionalId)
-      if (!professional) return appointmentNotFound()
-      if (!staffCanUseProfessional(authorizationUser, professional.id)) return appointmentForbidden()
+      let businessId = agendaCreate?.businessId
+      if (!businessId) {
+        const professional = await loadAuthorizedProfessional(prisma, authorizationUser, input.professionalId)
+        if (!professional) return appointmentNotFound()
+        if (!staffCanUseProfessional(authorizationUser, professional.id)) return appointmentForbidden()
+        businessId = professional.businessId
+      }
       let matches
       try {
-        matches = await findExistingCustomersByPhone({ businessId: professional.businessId, phone: input.customerPhone! })
+        matches = await findExistingCustomersByPhone({ businessId, phone: input.customerPhone! })
       } catch (error) {
         if (!(error instanceof CustomerPhoneValidationError)) throw error
         return { ok: false, statusCode: 400, message: error.message }
@@ -363,9 +385,19 @@ export class AppointmentService {
     }
 
     const serviceIds = normalizedServiceIds(input.serviceId, input.serviceIds)
-    const { professional, services, customer, complete } = authorizationUser
-      ? await loadAuthorizedAppointmentResources(prisma, authorizationUser, input, serviceIds)
-      : await loadAppointmentResources(prisma, input, serviceIds)
+    if (agendaCreate && !serviceIds.length) return appointmentNotFound()
+    const resourceClient = options.transaction ?? prisma
+    const availabilityStart = performance.now()
+    if (agendaCreate) {
+      await acquireAgendaHierarchy(agendaCreate.transaction, {
+        businessId: agendaCreate.businessId, professionalIds: [input.professionalId]
+      }, options.recordTiming)
+    }
+    const { professional, services, customer, complete } = agendaCreate
+      ? await loadAgendaCreateResources(agendaCreate.transaction, agendaCreate.businessId, input, serviceIds)
+      : authorizationUser
+      ? await loadAuthorizedAppointmentResources(resourceClient, authorizationUser, input, serviceIds)
+      : await loadAppointmentResources(resourceClient, input, serviceIds)
 
     if (authorizationUser && !complete) return appointmentNotFound()
 
@@ -423,65 +455,82 @@ export class AppointmentService {
       }
     }
 
-    if (!(await this.professionalOffersServices(input.professionalId, serviceIds))) {
-      return {
-        ok: false,
-        statusCode: 409,
-        message: 'Ese profesional no realiza todos los servicios seleccionados'
+    const validateOnlyUnderLock = Boolean(authorizationUser && options.transaction)
+    if (!validateOnlyUnderLock) {
+      if (!(await this.professionalOffersServices(input.professionalId, serviceIds))) {
+        return {
+          ok: false,
+          statusCode: 409,
+          message: 'Ese profesional no realiza todos los servicios seleccionados'
+        }
       }
-    }
 
-    const servicesById = new Map(services.map((service) => [service.id, service]))
-    const orderedServices = serviceIds.map((serviceId) => servicesById.get(serviceId)!)
-    const professionalDuration = orderedServices.reduce(
-      (total, service) => total + reservationDurationLimits(service).professional,
-      0
-    )
-    const customerDuration = orderedServices.reduce(
-      (total, service) => total + reservationDurationLimits(service).business,
-      0
-    )
-    const professionalEndAt = addMinutes(startAt, professionalDuration)
-    const customerEndAt = addMinutes(startAt, customerDuration)
-    const [insideBusinessHours, insideProfessionalHours, hasBlock, hasOverlap] = await Promise.all([
-      this.isInsideBusinessHours({ businessId: professional.businessId, startAt, endAt: customerEndAt }),
-      this.isInsideProfessionalHours({ professionalId: input.professionalId, startAt, endAt: professionalEndAt }),
-      this.hasScheduleBlockOverlap({
-        businessId: professional.businessId,
-        professionalId: input.professionalId,
-        startAt,
-        endAt: professionalEndAt
-      }),
-      this.hasAppointmentOverlap({ professionalId: input.professionalId, startAt, endAt: professionalEndAt })
-    ])
-    const conflicts = appointmentAvailabilityConflicts({
-      insideBusinessHours,
-      insideProfessionalHours,
-      hasBlock,
-      hasOverlap
-    })
+      const servicesById = new Map(services.map((service) => [service.id, service]))
+      const orderedServices = serviceIds.map((serviceId) => servicesById.get(serviceId)!)
+      const professionalDuration = orderedServices.reduce(
+        (total, service) => total + reservationDurationLimits(service).professional,
+        0
+      )
+      const customerDuration = orderedServices.reduce(
+        (total, service) => total + reservationDurationLimits(service).business,
+        0
+      )
+      const professionalEndAt = addMinutes(startAt, professionalDuration)
+      const customerEndAt = addMinutes(startAt, customerDuration)
+      const [insideBusinessHours, insideProfessionalHours, hasBlock, hasOverlap] = await Promise.all([
+        this.isInsideBusinessHours({ businessId: professional.businessId, startAt, endAt: customerEndAt }),
+        this.isInsideProfessionalHours({ professionalId: input.professionalId, startAt, endAt: professionalEndAt }),
+        this.hasScheduleBlockOverlap({
+          businessId: professional.businessId,
+          professionalId: input.professionalId,
+          startAt,
+          endAt: professionalEndAt
+        }),
+        this.hasAppointmentOverlap({ professionalId: input.professionalId, startAt, endAt: professionalEndAt })
+      ])
+      const conflicts = appointmentAvailabilityConflicts({
+        insideBusinessHours,
+        insideProfessionalHours,
+        hasBlock,
+        hasOverlap
+      })
 
-    if (conflicts.length && !input.force) {
-      return {
-        ok: false,
-        statusCode: 409,
-        message: conflicts[0]!.message,
-        code: 'APPOINTMENT_AVAILABILITY_CONFLICT',
-        forceable: true,
-        conflicts
+      if (conflicts.length && !input.force) {
+        return {
+          ok: false,
+          statusCode: 409,
+          message: conflicts[0]!.message,
+          code: 'APPOINTMENT_AVAILABILITY_CONFLICT',
+          forceable: true,
+          conflicts
+        }
       }
     }
 
     let transactionAvailabilityConflicts: AppointmentAvailabilityConflict[] = []
     const persistAppointment = async (transaction: Prisma.TransactionClient) => {
-      const validation = await revalidateBookingWrite(transaction, {
+      const availabilityCheckStart = agendaCreate ? availabilityStart : performance.now()
+      const bookingInput = {
         businessId: professional.businessId,
         professionalId: input.professionalId,
         serviceIds,
-        startAt
-      })
+        startAt,
+        // The manual availability screen includes completed appointments and held visits.
+        ...(validateOnlyUnderLock ? { overlapPolicy: 'appointment-edit' as const } : {})
+      }
+      const validation = agendaCreate
+        ? await checkBookingWriteAvailability(transaction, bookingInput, { professional, services }, true)
+        : await revalidateBookingWrite(transaction, bookingInput, options.recordTiming)
+      options.recordTiming?.('availability-write', performance.now() - availabilityCheckStart)
 
-      if (authorizationUser) {
+      if (!agendaCreate && authorizationUser && validateOnlyUnderLock) {
+        // The locked validation already read the professional and services in this business.
+        const scopedCustomer = await loadAuthorizedCustomer(transaction, authorizationUser, input.customerId)
+        if (scopedCustomer?.businessId !== validation.professional.businessId ||
+            !staffCanUseProfessional(authorizationUser, validation.professional.id)) {
+          return 'AUTHORIZATION_CONFLICT' as const
+        }
+      } else if (!agendaCreate && authorizationUser) {
         const scopedResources = await loadAuthorizedAppointmentResources(
           transaction,
           authorizationUser,
@@ -513,41 +562,48 @@ export class AppointmentService {
         }, transaction)
       }
 
-      const createdAppointment = await createAppointmentRecord(transaction, {
-        data: {
-          businessId: professional.businessId,
-          customerId: input.customerId,
-          professionalId: input.professionalId,
-          serviceId: input.serviceId,
-          startAt,
-          origin: input.origin ?? 'UNKNOWN',
-          totalDurationMinutes: validation.professionalDuration,
-          status: input.status ?? 'CONFIRMED',
-          quotedPrice: normalizeQuotedPrice(input.quotedPrice),
-          manualDepositPaid: manualDeposit.paid,
-          manualDepositAmount: manualDeposit.amount,
-          notes: notes.value,
-          attentionColor: attentionColor.value,
-          coordinationGroupId: input.coordinationGroupId ?? null,
-          serviceItems: {
-            create: validation.orderedServices.map((service, sortOrder) => ({
-              serviceId: service.id,
-              sortOrder,
-              durationMinutes: service.duration,
-              price: service.price
-            }))
-          }
-        },
-        include: { serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } } }
-      })
+      const data = {
+        businessId: professional.businessId,
+        customerId: input.customerId,
+        professionalId: input.professionalId,
+        serviceId: input.serviceId,
+        startAt,
+        origin: input.origin ?? 'UNKNOWN',
+        totalDurationMinutes: validation.professionalDuration,
+        status: input.status ?? 'CONFIRMED',
+        quotedPrice: normalizeQuotedPrice(input.quotedPrice),
+        manualDepositPaid: manualDeposit.paid,
+        manualDepositAmount: manualDeposit.amount,
+        notes: notes.value,
+        attentionColor: attentionColor.value,
+        coordinationGroupId: input.coordinationGroupId ?? null
+      } satisfies Prisma.AppointmentUncheckedCreateInput
+      const serviceItems = validation.orderedServices.map((service, sortOrder) => ({
+        serviceId: service.id,
+        sortOrder,
+        durationMinutes: service.duration,
+        price: service.price
+      }))
+      const createdAppointment = agendaCreate
+        ? await insertAgendaAppointment(transaction, data, serviceItems, validation.orderedServices)
+        : await createAppointmentRecord(transaction, {
+          data: { ...data, serviceItems: { create: serviceItems } },
+          include: { serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } } }
+        })
       if (authorizationUser || options.useCustomerBenefits || input.origin === 'BOT') {
-        await reserveBenefit(transaction, { businessId: professional.businessId, customerId: input.customerId, appointmentId: createdAppointment.id, optional: true })
+        const benefitStart = performance.now()
+        await reserveBenefit(transaction, {
+          businessId: professional.businessId, customerId: input.customerId, appointmentId: createdAppointment.id, optional: true
+        }, validateOnlyUnderLock ? createdAppointment : undefined, Boolean(agendaCreate))
+        options.recordTiming?.('benefits', performance.now() - benefitStart)
       }
+      const paymentStart = performance.now()
       await options.afterCreateInTransaction?.({
         transaction,
         appointment: createdAppointment,
         businessId: professional.businessId
       })
+      if (options.afterCreateInTransaction) options.recordTiming?.('initial-cash', performance.now() - paymentStart)
       return createdAppointment
     }
     const appointment = options.transaction
@@ -1954,6 +2010,38 @@ export class AppointmentService {
     })
 
     return scheduleBlock !== null
+  }
+}
+
+async function insertAgendaAppointment(
+  transaction: Prisma.TransactionClient,
+  data: Prisma.AppointmentUncheckedCreateInput,
+  items: Omit<Prisma.AppointmentServiceItemCreateManyInput, 'appointmentId'>[],
+  services: Awaited<ReturnType<typeof checkBookingWriteAvailability>>['orderedServices']
+) {
+  const appointment = await createAppointmentRecord(transaction, { data })
+  const serviceItems = items.map((item) => ({ ...item, appointmentId: appointment.id, price: item.price ?? null }))
+  await transaction.appointmentServiceItem.createMany({ data: serviceItems })
+  return { ...appointment, serviceItems: serviceItems.map((item, index) => ({ ...item, service: services[index]! })) }
+}
+
+async function loadAgendaCreateResources(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  input: Pick<CreateAppointmentInput, 'professionalId' | 'customerId'>,
+  serviceIds: string[]
+) {
+  const professional = await tx.professional.findFirst({ where: { id: input.professionalId, businessId } })
+  const services = await tx.service.findMany({ where: { id: { in: serviceIds }, businessId } })
+  const customer = await tx.customer.findFirst({
+    where: { id: input.customerId, businessId },
+    select: { businessId: true, phone: true }
+  })
+  return {
+    professional,
+    services,
+    customer,
+    complete: Boolean(professional && customer && services.length === serviceIds.length)
   }
 }
 

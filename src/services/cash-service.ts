@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import type { Appointment, Prisma } from '../generated/prisma/client.js'
 import {
   assertIanaTimezone,
   assertEntryAmount,
@@ -53,7 +54,10 @@ type AppointmentPaymentResult = {
 }
 
 export class CashService {
-  constructor(private readonly repository: CashRepository) {}
+  constructor(
+    private readonly repository: CashRepository,
+    private readonly newAppointmentEvidence?: AppointmentBackfillEvidence
+  ) {}
 
   async openRegisterDay(input: {
     businessId: string
@@ -438,7 +442,7 @@ export class CashService {
       if (input.allowedProfessionalId !== undefined && !await transaction.lockAppointmentForProfessional(input.businessId, input.appointmentId, input.allowedProfessionalId)) {
         throw new CashServiceError('APPOINTMENT_ACCOUNT_NOT_FOUND')
       }
-      const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId)
+      const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId, this.newAppointmentEvidence)
       if (account.pricingMode !== 'ESTIMATED') throw new CashServiceError('FIXED_PRICE_IMMUTABLE')
       if (account.agreedAmount === agreedAmount) return account
       return adjustAppointmentTotalInTransaction(transaction, account, {
@@ -663,7 +667,7 @@ export class CashService {
       if (input.allowedProfessionalId !== undefined && !await transaction.lockAppointmentForProfessional(input.businessId, input.appointmentId, input.allowedProfessionalId)) {
         throw new CashServiceError('APPOINTMENT_ACCOUNT_NOT_FOUND')
       }
-      const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId)
+      const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId, this.newAppointmentEvidence)
       if (account.agreedAmount === null) throw new CashServiceError('ESTIMATED_TOTAL_REQUIRED')
       const discountAmount = input.discountAmount !== undefined
         ? assertMoney(input.discountAmount, 'INVALID_DISCOUNT_AMOUNT')
@@ -738,7 +742,7 @@ export class CashService {
         if (!configured || !configured.isActive || configured.kind !== line.method) throw new CashServiceError('INVALID_PAYMENT_METHOD')
       }
       markTiming?.('cash-session')
-      const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId)
+      const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId, this.newAppointmentEvidence)
       if (account.agreedAmount === null) throw new CashServiceError('ESTIMATED_TOTAL_REQUIRED')
       const currentEntries = await transaction.listAccountEntries(input.businessId, account.id)
       const paymentTotal = lines.reduce((total, line) => total + line.amount, 0)
@@ -1414,18 +1418,23 @@ async function requireAppointmentAccount(
 export async function ensureAppointmentAccountForPayment(
   transaction: CashTransactionRepository,
   businessId: string,
-  appointmentId: string
+  appointmentId: string,
+  newAppointmentEvidence?: AppointmentBackfillEvidence
 ) {
   const existing = await transaction.lockAppointmentAccount(businessId, appointmentId)
   if (existing) return existing
-  const plan = buildAppointmentAccountBackfillPlan(await transaction.loadAppointmentBackfillGroup(businessId, appointmentId))
+  const fresh = newAppointmentEvidence?.businessId === businessId && newAppointmentEvidence.appointmentId === appointmentId
+  const evidence = fresh ? [newAppointmentEvidence] : await transaction.loadAppointmentBackfillGroup(businessId, appointmentId)
+  const plan = buildAppointmentAccountBackfillPlan(evidence)
   if (!plan.ok) throw new CashServiceError(plan.code)
   const accountId = deterministicFinancialId('cash_account', businessId, plan.sourceKey)
-  const existingLinks = await Promise.all(plan.appointmentIds.map((id) => transaction.resolveAppointmentAccount(businessId, id)))
-  if (existingLinks.some((account) => account !== null && account.id !== accountId)) {
-    throw new CashServiceError('APPOINTMENT_LINK_CONFLICT')
+  if (!fresh) {
+    const existingLinks = await Promise.all(plan.appointmentIds.map((id) => transaction.resolveAppointmentAccount(businessId, id)))
+    if (existingLinks.some((account) => account !== null && account.id !== accountId)) {
+      throw new CashServiceError('APPOINTMENT_LINK_CONFLICT')
+    }
   }
-  await transaction.ensureAppointmentAccount({
+  const ensured = await transaction.ensureAppointmentAccount({
     id: accountId,
     businessId,
     pricingMode: plan.pricingMode,
@@ -1437,7 +1446,37 @@ export async function ensureAppointmentAccountForPayment(
     const link = await transaction.ensureAppointmentAccountLink({ businessId, appointmentId: id, accountId })
     if (!link.linked) throw new CashServiceError('APPOINTMENT_LINK_CONFLICT')
   }
-  return requireAppointmentAccount(transaction, businessId, appointmentId)
+  return fresh ? ensured.account : requireAppointmentAccount(transaction, businessId, appointmentId)
+}
+
+export function standaloneNewAppointmentEvidence(appointment: Appointment &
+  Partial<Pick<Prisma.AppointmentGetPayload<{ include: { serviceItems: { include: { service: true } } } }>, 'serviceItems'>>
+): AppointmentBackfillEvidence | undefined {
+  const items = appointment.serviceItems
+  if (appointment.coordinationGroupId !== null || appointment.visitId !== null || !items?.length) return
+  const primary = items.find(item => item.serviceId === appointment.serviceId)?.service
+  if (!primary || items.some(item => item.service.businessId !== appointment.businessId)) return
+  const prices = items.flatMap(item => item.price === null ? [] : [item.price])
+  const minimums = items.flatMap(item => item.service.price === null ? [] : [item.service.price])
+  return {
+    businessId: appointment.businessId,
+    appointmentId: appointment.id,
+    origin: appointment.origin,
+    coordinationGroupId: null,
+    visitId: null,
+    visitBusinessId: null,
+    visitTotalPrice: null,
+    quotedPrice: appointment.quotedPrice,
+    primaryPrice: primary.price,
+    itemCount: items.length,
+    pricedItemCount: prices.length,
+    itemTotal: prices.length ? prices.reduce((sum, price) => sum + price, 0) : null,
+    minimumPrice: minimums.length ? minimums.reduce((sum, price) => sum + price, 0) : primary.price,
+    estimated: items.some(item => item.service.priceMode === 'STARTING_AT'),
+    tenantConsistent: true,
+    manualDepositPaid: appointment.manualDepositPaid,
+    manualDepositAmount: appointment.manualDepositAmount
+  }
 }
 
 async function accountFinance(
