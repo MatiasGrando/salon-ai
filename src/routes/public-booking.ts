@@ -371,7 +371,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
 
     const [professionals, customer] = await Promise.all([
       professionalsForService(business.id, serviceId, professionalId),
-      findOrCreatePublicCustomer({
+      findOrCreatePublicCustomer(request, {
         businessId: business.id,
         name: customerName,
         phone: `+${customerPhone}`,
@@ -380,6 +380,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       })
     ])
     markConfirmationTiming('professionalAndCustomerMs')
+    if (!customer) return reply.status(409).send({ message: 'No pudimos guardar tus datos de contacto. Intenta nuevamente.' })
     const offeredProfessional = professionals.find((item) => item.id === professionalId)
     if (!offeredProfessional) {
       return reply.status(400).send({ message: 'Ese profesional no corresponde al servicio elegido' })
@@ -607,13 +608,14 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     if (!customerName || !normalizedPhone.ok) {
       return reply.status(400).send({ message: 'Inicia sesion y completa un telefono valido para confirmar los turnos' })
     }
-    const customer = await findOrCreatePublicCustomer({
+    const customer = await findOrCreatePublicCustomer(request, {
       businessId: business.id,
       name: customerName,
       phone: `+${customerPhone}`,
       registerMarketingPreference: Boolean(weexAuth),
       email: customerEmail
     })
+    if (!customer) return reply.status(409).send({ message: 'No pudimos guardar tus datos de contacto. Intenta nuevamente.' })
 
     const coordinationGroupId = randomUUID()
     const appointmentIds: string[] = []
@@ -1030,15 +1032,20 @@ async function professionalsForServiceSlug(slug: string, serviceId: string, prof
   return service.professionalLinks.map((link) => link.professional)
 }
 
-async function findOrCreatePublicCustomer(input: {
+async function findOrCreatePublicCustomer(request: FastifyRequest, input: {
   businessId: string
   name: string
   phone: string
   email?: string | null
   registerMarketingPreference?: boolean
 }) {
-  const result = await findOrCreateCustomerByPhone(input)
-  return result.customer
+  try {
+    const result = await findOrCreateCustomerByPhone(input)
+    return result.customer
+  } catch (error) {
+    request.log.error({ err: error, businessId: input.businessId }, 'No se pudo guardar el cliente de la reserva web')
+    return null
+  }
 }
 
 type PublicBookingBusiness = NonNullable<Awaited<ReturnType<BusinessService['findPublicBySlug']>>>

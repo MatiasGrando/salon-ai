@@ -10,8 +10,10 @@ const [{ default: Fastify }, { landingUiRoutes }, { BusinessService }] = await P
 ])
 const originals = [BusinessService.prototype.findPublicBySlug, BusinessService.prototype.findPublicByCustomerCode]
 const business = (slug = 'lacochera') => ({ id: 'synthetic-' + slug, slug, name: 'Local sintético', accountStatus: 'ACTIVE', landingEnabled: true, landingTemplate: 'classic', services: [], professionals: [] }) as any
-BusinessService.prototype.findPublicBySlug = async slug => business(slug)
-BusinessService.prototype.findPublicByCustomerCode = async () => business('bound-local')
+BusinessService.prototype.findPublicBySlug = async slug => slug === 'tamaragrando' ? null : business(slug)
+BusinessService.prototype.findPublicByCustomerCode = async code => code === 'WX-RWCEDG'
+  ? { ...business('bound-local'), customerCode: code }
+  : null
 const app = Fastify(); await app.register(landingUiRoutes)
 let passes = 0, failures = 0
 async function check(name: string, test: () => any) {
@@ -31,7 +33,7 @@ const registrationHtml = (await app.inject('/registro')).body
 const bookingScript = scriptOf(bookingHtml, 'function confirmBooking')
 const accountScript = scriptOf(accountHtml, 'function loadHistory')
 const registrationScript = scriptOf(registrationHtml, 'function completeLogin')
-function element() { return { hidden: false, disabled: false, value: '', textContent: '', innerHTML: '', className: '', dataset: {}, classList: { toggle() {} }, addEventListener() {}, focus() {}, querySelector() { return null }, querySelectorAll() { return [] } } }
+function element() { return { hidden: false, disabled: false, value: '', textContent: '', innerHTML: '', className: '', dataset: {}, classList: { toggle() {} }, setAttribute() {}, closest() { return null }, addEventListener() {}, focus() {}, querySelector() { return null }, querySelectorAll() { return [] } } }
 function context() {
   const service = { id: 'cut', name: 'Corte actual', price: 123, duration: 30, professionalIds: ['p'], estimateOptions: [] as any[] }
   const today = new Date(); today.setHours(0, 0, 0, 0)
@@ -64,17 +66,35 @@ const draftSource = () => ['loginDraftKey', 'saveLoginDraft', 'restoreLoginDraft
 async function saved(c = context()) { runInNewContext(draftSource() + '; saveLoginDraft()', c); assert.equal(c.storage.size, 1); return c }
 function mutate(c: any, transform: (payload: any) => void) { const key = [...c.storage.keys()][0]; const payload = JSON.parse(c.storage.get(key)); transform(payload); c.storage.set(key, JSON.stringify(payload)) }
 try {
-  await check('account links retain host and tenant on root, subdomain, path, proxy and custom binding', async () => {
+  await check('Tamara homepage redirects to the custom site and booking stays on the central domain', async () => {
+    const home = await app.inject({ url: '/tamaragrando?utm_source=offline', headers: {host:'weex.com.ar'} })
+    assert.equal(home.statusCode, 302)
+    assert.equal(home.headers.location, 'https://tamaragrando.weex.com.ar/?utm_source=offline')
+    for (const suffix of ['/reservar', '/cuenta']) {
+      const response = await app.inject({
+        url: '/tamaragrando' + suffix, headers: {host:'internal-proxy','x-forwarded-host':'weex.com.ar'}
+      })
+      assert.equal(response.statusCode, 200)
+      assert.equal(response.headers.location, undefined)
+      assert.match(response.body, /data-(?:booking|account)-slug="bound-local"/)
+      assert.match(response.body, /accounts\.google\.com\/gsi\/client/)
+    }
+    const subdomain = await app.inject({url:'/reservar', headers:{host:'tamaragrando.weex.com.ar'}})
+    assert.equal(subdomain.statusCode, 200)
+    assert.match(subdomain.body, /data-booking-slug="bound-local"/)
+    assert.match(subdomain.body, /https:\/\/weex\.com\.ar\/tamaragrando\/cuenta/)
+  })
+  await check('account links lead to central booking for the same tenant', async () => {
     for (const fixture of [
-      { url: '/cuenta', headers: { host: 'lacochera.weex.com.ar' }, origin: 'https://lacochera.weex.com.ar', path: '/reservar', slug: 'lacochera' },
+      { url: '/cuenta', headers: { host: 'lacochera.weex.com.ar' }, origin: 'https://lacochera.weex.com.ar', path: '/lacochera/reservar', slug: 'lacochera' },
       { url: '/lacochera/cuenta', headers: { host: 'weex.com.ar' }, origin: 'https://weex.com.ar', path: '/lacochera/reservar', slug: 'lacochera' },
-      { url: '/cuenta', headers: { host: 'proxy.internal', 'x-forwarded-host': 'lacochera.weex.com.ar', 'x-forwarded-proto': 'https' }, origin: 'https://lacochera.weex.com.ar', path: '/reservar', slug: 'lacochera' },
-      { url: '/cuenta', headers: { host: 'tamaragrando.weex.com.ar' }, origin: 'https://tamaragrando.weex.com.ar', path: '/reservar', slug: 'bound-local' }
+      { url: '/cuenta', headers: { host: 'proxy.internal', 'x-forwarded-host': 'lacochera.weex.com.ar', 'x-forwarded-proto': 'https' }, origin: 'https://lacochera.weex.com.ar', path: '/lacochera/reservar', slug: 'lacochera' },
+      { url: '/cuenta', headers: { host: 'tamaragrando.weex.com.ar' }, origin: 'https://tamaragrando.weex.com.ar', path: '/tamaragrando/reservar', slug: 'bound-local' }
     ]) {
       const response = await app.inject({ url: fixture.url, headers: fixture.headers }); assert.equal(response.statusCode, 200); assert.equal(response.headers.location, undefined)
       const href = response.body.match(/<a[^>]*href="([^"]+)"[^>]*class="account-book"/)?.[1] || response.body.match(/<a[^>]*class="account-book"[^>]*href="([^"]+)"/)?.[1]
       assert.ok(href, 'Reserve button not found'); const target = new URL(href, fixture.origin + fixture.url)
-      assert.equal(target.origin, fixture.origin); assert.equal(target.pathname, fixture.path); assert.ok(response.body.includes('data-account-slug="' + fixture.slug + '"'))
+      assert.equal(target.origin, 'https://weex.com.ar'); assert.equal(target.pathname, fixture.path); assert.ok(response.body.includes('data-account-slug="' + fixture.slug + '"'))
     }
   })
   await check('both booking address formats render without canonical redirect', async () => {
@@ -188,7 +208,7 @@ try {
     for (const mode of ['draft', 'time', 'confirmed', 'deposit', 'proofSent', 'guestClosed', 'list', 'detail']) {
       const c = context(); const classes = new Map<string, boolean>(); let summaries = 0
       const summary = { classList: { remove: (name: string) => classes.set(name, false), toggle: (name: string, on: boolean) => classes.set(name, on) } }
-      c.document = { querySelector: (selector: string) => selector === '.fresha-summary' ? summary : null }
+      c.document = { getElementById: element, querySelector: (selector: string) => selector === '.fresha-summary' ? summary : null }
       c.state.guestBookings = []; c.renderBreadcrumb = () => {}; c.renderConfirmStep = () => {}; c.renderTimeStep = () => {}; c.renderGuestBookings = () => {}; c.renderSummary = () => summaries++
       if (mode === 'time') c.state.step = 3
       else if (mode === 'list' || mode === 'detail') c.state.bookingView = mode

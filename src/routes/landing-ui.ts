@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { siFacebook, siInstagram, siTiktok, siWhatsapp, type SimpleIcon } from 'simple-icons'
 import { BusinessService, normalizeBusinessSlug } from '../services/business-service.js'
-import { findCustomSiteProfileBinding } from '../services/custom-site-profile-binding.js'
+import { findCustomSiteProfileBinding, findCustomSiteProfileBindingByPathSlug, normalizeHostname } from '../services/custom-site-profile-binding.js'
 import { formatArgentineMobilePhone } from '../services/phone-normalization-service.js'
 import { weexGoogleCalendarEnabled, weexGoogleClientId } from '../services/weex-account-service.js'
 import { formatCustomerDuration } from '../services/service-duration.js'
@@ -113,6 +113,13 @@ export async function landingUiRoutes(app: FastifyInstance) {
   app.get('/:slug', async (request, reply) => {
     const params = request.params as { slug: string }
     const slug = normalizeBusinessSlug(params.slug)
+    const binding = customSiteBindingForPath(request, slug)
+    if (binding) {
+      const target = new URL(`https://${binding.hostname}/`)
+      const searchIndex = request.url.indexOf('?')
+      if (searchIndex >= 0) target.search = request.url.slice(searchIndex)
+      return reply.redirect(target.toString())
+    }
     const business = await businessService.findPublicBySlug(slug)
     const modelPreview = isLandingDemoPreview(request)
     if (business && isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
@@ -126,7 +133,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
   app.get('/:slug/reservar', async (request, reply) => {
     const params = request.params as { slug: string }
     const slug = normalizeBusinessSlug(params.slug)
-    const business = await businessService.findPublicBySlug(slug)
+    const business = await findPublicBusinessFromPath(request, slug)
     if (business && isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     const demoPreview = Boolean(business && isLocalDemoPreview(request, business))
     if (!business || (!business.landingEnabled && !demoPreview)) return reply.status(404).type('text/html').send(renderNotFound())
@@ -137,12 +144,24 @@ export async function landingUiRoutes(app: FastifyInstance) {
   app.get('/:slug/cuenta', async (request, reply) => {
     const params = request.params as { slug: string }
     const slug = normalizeBusinessSlug(params.slug)
-    const business = await businessService.findPublicBySlug(slug)
+    const business = await findPublicBusinessFromPath(request, slug)
     if (business && isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
 
     return reply.type('text/html').send(renderCustomerAccount(business, `/${slug}`))
   })
+}
+
+function customSiteBindingForPath(request: FastifyRequest, slug: string) {
+  const hostname = normalizeHostname(requestHost(request))
+  return hostname === baseDomain || hostname === `www.${baseDomain}`
+    ? findCustomSiteProfileBindingByPathSlug(slug)
+    : null
+}
+
+function findPublicBusinessFromPath(request: FastifyRequest, slug: string) {
+  const binding = customSiteBindingForPath(request, slug)
+  return binding ? businessService.findPublicByCustomerCode(binding.businessCustomerCode) : businessService.findPublicBySlug(slug)
 }
 
 async function serveWeexHome(reply: FastifyReply) {

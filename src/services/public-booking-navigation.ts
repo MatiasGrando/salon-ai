@@ -5,8 +5,9 @@ export type PublicBusinessNavigation = { slug?: string | null; customerCode?: st
 export function publicBookingNavigation(business: PublicBusinessNavigation) {
   const domain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
   const slug = business.slug || ''
-  const central = `https://${domain}${slug ? `/${encodeURIComponent(slug)}` : ''}`
   const binding = business.customerCode ? findCustomSiteProfileBindingByCustomerCode(business.customerCode) : null
+  const centralSlug = binding?.centralPathSlug || slug
+  const central = `https://${domain}${centralSlug ? `/${encodeURIComponent(centralSlug)}` : ''}`
   const landingUrl = business.customerCode === 'WX-NPP7HE'
     ? 'https://glow.weex.com.ar/?sede=canitas'
     : business.customerCode === 'WX-QG5FQA'

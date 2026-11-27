@@ -9,22 +9,22 @@ process.env.WEEX_GOOGLE_CLIENT_ID = ''
 process.env.GOOGLE_CLIENT_ID = ''
 process.env.ENABLE_GOOGLE_CALENDAR_SYNC = 'false'
 const [{ prisma }, { landingUiRoutes }, { publicBookingRoutes }, { weexAccountRoutes }, { BusinessService },
-  { AppointmentService }, { BookingAvailabilitySearchEngine }, { bookingDepositService },
+  { AppointmentService }, { InternalBookingProvider }, { bookingDepositService },
   { updateWeexPhone, linkExistingCustomersByPhone }, { normalizeCustomerPhone, phoneSearchVariants },
   { findOrCreateCustomerByPhone }, { Prisma }, { PGlite }] = await Promise.all([
   import('../src/config/prisma.js'), import('../src/routes/landing-ui.js'), import('../src/routes/public-booking.js'),
   import('../src/routes/weex-account.js'), import('../src/services/business-service.js'),
-  import('../src/services/appointment-service.js'), import('../src/services/booking-availability-search.js'),
+  import('../src/services/appointment-service.js'), import('../src/providers/internal-booking-provider.js'),
   import('../src/services/booking-deposit-service.js'), import('../src/services/weex-account-service.js'),
   import('../src/services/phone-normalization-service.js'), import('../src/services/customer-identity-service.js'),
   import('../src/generated/prisma/client.js'), import('@electric-sql/pglite')
 ])
 const db = prisma as any
-function matchesCustomerWhere(where: any) {
-  if (where.OR && !where.OR.some(matchesCustomerWhere)) return false
-  if (where.AND && !where.AND.every(matchesCustomerWhere)) return false
-  if ('normalizedPhone' in where && where.normalizedPhone !== customer.normalizedPhone) return false
-  if (where.phone?.in && !where.phone.in.includes(customer.phone)) return false
+function matchesCustomerWhere(where: any, candidate = customer) {
+  if (where.OR && !where.OR.some((condition: any) => matchesCustomerWhere(condition, candidate))) return false
+  if (where.AND && !where.AND.every((condition: any) => matchesCustomerWhere(condition, candidate))) return false
+  if ('normalizedPhone' in where && where.normalizedPhone !== candidate.normalizedPhone) return false
+  if (where.phone?.in && !where.phone.in.includes(candidate.phone)) return false
   return true
 }
 const restore: Array<() => void> = []
@@ -140,11 +140,7 @@ try {
     return { ok: true, appointment: { id: 'coordinated-' + input.serviceId } }
   })
   replace(AppointmentService.prototype, 'confirmPendingAppointments', async () => true)
-  replace(BookingAvailabilitySearchEngine.prototype, 'search', async () => ({ options: [{
-    id: 'itinerary-a', segments: business.services.map((entry: any, index: number) => ({
-      serviceId: entry.id, professionalId: professional.id, startTime: index ? '16:30' : '16:00'
-    }))
-  }] }))
+  replace(InternalBookingProvider.prototype, 'getAvailability', async () => ({ok:true,slots:['16:00','16:30']}))
   await app.register(landingUiRoutes)
   await app.register(publicBookingRoutes)
   await app.register(weexAccountRoutes)
@@ -313,12 +309,19 @@ try {
     assert.equal(await linkExistingCustomersByPhone(account.id, '+4930123456'), 1)
     assert.ok(!linkQuery.customer.OR[1].phone.in.includes('5494930123456'))
   })
-  const book = { serviceId: service.id, professionalId: professional.id, date: '2026-10-14', time: '16:00' }
+  const bookingDate = new Date(Date.now() + 86_400_000).toISOString().slice(0,10)
+  const book = { serviceId: service.id, professionalId: professional.id, date: bookingDate, time: '16:00' }
+  const serviceIds = business.services.map((entry: any) => entry.id)
+  const availability = await app.inject({method:'POST',url:'/public/booking/phone-test/itineraries',payload:{serviceIds,date:bookingDate}})
+  assert.equal(availability.statusCode,200,availability.body)
+  const itineraryId = availability.json().options[0]?.id
+  assert.ok(itineraryId,availability.body)
+  const coordinatedBooking = {serviceSelections:serviceIds.map((serviceId: string) => ({serviceId})),date:bookingDate,itineraryId}
   for (const coordinated of [false, true]) {
     await test(`saved foreign profile ${coordinated ? 'coordinated' : 'single'} booking reuses customer`, async () => {
       account.phone = '4930123456'; customer.phone = account.phone; customer.normalizedPhone = account.phone
       const response = await app.inject({ method: 'POST', url: '/public/booking/phone-test/' + (coordinated ? 'book-coordinated' : 'book'), headers: cookie,
-        payload: coordinated ? { serviceSelections: business.services.map((entry: any) => ({ serviceId: entry.id })), date: book.date, itineraryId: 'itinerary-a' } : book })
+        payload: coordinated ? coordinatedBooking : book })
       assert.equal(response.statusCode, 200, response.body)
       assert.equal(customerCreates, 0, 'foreign country must not create another Argentine identity')
       assert.equal(writtenPhones.at(-1), '4930123456')
@@ -488,6 +491,43 @@ try {
       assert.equal(await linkExistingCustomersByPhone(account.id, '+4930123456'), 1, 'booking normalizes and links the same legacy identity')
     })
   }
+  await test('authenticated booking prefers the canonical customer over an older duplicate', async () => {
+    account.phone = '5491166558877'
+    customer = { ...customer, phone: account.phone, normalizedPhone: account.phone }
+    const legacy = { ...customer, id:'older-customer', phone:'+' + account.phone, normalizedPhone:null }
+    await sqlDb.exec('DELETE FROM "Customer"; ALTER TABLE "Customer" ADD UNIQUE ("businessId", "normalizedPhone")')
+    for (const entry of [legacy, customer]) {
+      await sqlDb.query('INSERT INTO "Customer" ("id", "businessId", "phone", "normalizedPhone") VALUES ($1, $2, $3, $4)',
+        [entry.id, entry.businessId, entry.phone, entry.normalizedPhone])
+    }
+    replace(db.customer, 'findFirst', async ({where,orderBy}: any) => {
+      const matches = [legacy, customer].filter(entry => entry.businessId === where.businessId && matchesCustomerWhere(where,entry))
+      if (orderBy?.[0]?.normalizedPhone?.nulls === 'last') matches.sort((a,b) => Number(!a.normalizedPhone) - Number(!b.normalizedPhone))
+      return matches[0] ?? null
+    })
+    replace(db.customer, 'update', async ({where,data}: any) => {
+      await sqlDb.query('UPDATE "Customer" SET "phone" = $2, "normalizedPhone" = $3 WHERE "id" = $1',
+        [where.id,data.phone,data.normalizedPhone])
+      assert.equal(where.id, customer.id)
+      return customer
+    })
+    const before = customerCreates
+    for (const coordinated of [false,true]) {
+      const response = await app.inject({ method:'POST', url:'/public/booking/phone-test/' + (coordinated ? 'book-coordinated' : 'book'), headers:cookie,
+        payload: coordinated ? coordinatedBooking : book })
+      assert.equal(response.statusCode,200,response.body)
+    }
+    assert.equal(customerCreates,before)
+    const untouched = await sqlDb.query<{ normalizedPhone: string | null }>('SELECT "normalizedPhone" FROM "Customer" WHERE id = $1', [legacy.id])
+    assert.equal(untouched.rows[0]?.normalizedPhone,null)
+  })
+  await test('failed customer identity write returns a public message without Prisma details', async () => {
+    replace(db.customer, 'update', async () => { throw new Error('Prisma P2002: simulated contact write error') })
+    const response = await app.inject({ method:'POST', url:'/public/booking/phone-test/book', headers:cookie, payload:book })
+    assert.equal(response.statusCode,409,response.body)
+    assert.match(response.json().message, /datos de contacto/)
+    assert.doesNotMatch(response.body,/Prisma|P2002/)
+  })
   console.log(`Public registration phone: ${passes} passed; ${failures} failed`)
 } finally {
   await app.close()

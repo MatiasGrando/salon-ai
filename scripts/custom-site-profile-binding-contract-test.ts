@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { findCustomSiteProfileBinding } from '../src/services/custom-site-profile-binding.js'
+import { findCustomSiteProfileBinding, findCustomSiteProfileBindingByPathSlug } from '../src/services/custom-site-profile-binding.js'
 
 const [landingUi, businessService, tamaraSite, yamilaSite, naturaFlowRoute, authGuard, server] = await Promise.all([
   readFile('src/routes/landing-ui.ts', 'utf8'),
@@ -17,8 +17,11 @@ const naturaFlowSite = await readFile('src/assets/natura-flow-site/index.html', 
 assert.deepEqual(findCustomSiteProfileBinding('tamaragrando.weex.com.ar'), {
   hostname: 'tamaragrando.weex.com.ar',
   businessCustomerCode: 'WX-RWCEDG',
-  serviceCatalogMode: 'ALL'
+  serviceCatalogMode: 'ALL',
+  centralPathSlug: 'tamaragrando'
 })
+assert.equal(findCustomSiteProfileBindingByPathSlug('tamaragrando')?.businessCustomerCode, 'WX-RWCEDG')
+assert.equal(findCustomSiteProfileBindingByPathSlug('naturalflow'), null)
 assert.equal(
   findCustomSiteProfileBinding('TAMARAGRANDO.WEEX.COM.AR:443')?.businessCustomerCode,
   'WX-RWCEDG'

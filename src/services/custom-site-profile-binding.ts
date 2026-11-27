@@ -2,6 +2,7 @@ export type CustomSiteProfileBinding = {
   hostname: string
   businessCustomerCode: string
   serviceCatalogMode: 'ALL'
+  centralPathSlug?: string
 }
 
 const customSiteProfileBindings: CustomSiteProfileBinding[] = [
@@ -18,7 +19,8 @@ const customSiteProfileBindings: CustomSiteProfileBinding[] = [
   {
     hostname: 'tamaragrando.weex.com.ar',
     businessCustomerCode: 'WX-RWCEDG',
-    serviceCatalogMode: 'ALL'
+    serviceCatalogMode: 'ALL',
+    centralPathSlug: 'tamaragrando'
   },
   {
     hostname: 'naturalflow.weex.com.ar',
@@ -40,6 +42,10 @@ export function findCustomSiteProfileBinding(host: string | string[] | undefined
 
 export function findCustomSiteProfileBindingByCustomerCode(customerCode: string) {
   return customSiteProfileBindings.find(binding => binding.businessCustomerCode === customerCode.trim().toUpperCase()) || null
+}
+
+export function findCustomSiteProfileBindingByPathSlug(slug: string) {
+  return customSiteProfileBindings.find(binding => binding.centralPathSlug === slug) || null
 }
 
 export function normalizeHostname(host: string | string[] | undefined) {

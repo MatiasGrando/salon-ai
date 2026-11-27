@@ -102,10 +102,10 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
         businessId,
         OR: [
           { normalizedPhone: canonicalPhone },
-          { phone: { in: literalVariants }, ...(internationalPhone ? { normalizedPhone: null } : {}) }
+          { phone: { in: literalVariants }, normalizedPhone: null }
         ]
       },
-      orderBy: { createdAt: 'asc' }
+      orderBy: [{ normalizedPhone: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }, { id: 'asc' }]
     })
 
     if (!customer && digitVariants.length) {
@@ -113,9 +113,10 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
         SELECT "id"
         FROM "Customer"
         WHERE "businessId" = ${businessId}
+          AND "normalizedPhone" IS NULL
           AND regexp_replace("phone", '[^0-9]', '', 'g') IN (${Prisma.join(digitVariants)})
-          ${internationalPhone ? Prisma.sql`AND "normalizedPhone" IS NULL AND (ltrim("phone") LIKE '+%' OR ltrim("phone") LIKE '00%')` : Prisma.empty}
-        ORDER BY "createdAt" ASC
+          ${internationalPhone ? Prisma.sql`AND (ltrim("phone") LIKE '+%' OR ltrim("phone") LIKE '00%')` : Prisma.empty}
+        ORDER BY "createdAt" ASC, "id" ASC
         LIMIT 1
       `
       if (rows[0]?.id) customer = await transaction.customer.findUnique({ where: { id: rows[0].id } })
