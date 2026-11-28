@@ -10,6 +10,7 @@ import { formatCustomerDuration } from '../services/service-duration.js'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
 import { renderSocialPreviewMetadata, resolveSocialPreviewImage } from '../services/landing-social-preview.js'
 import { isLaCocheraLandingRequest, sendLaCocheraLanding } from './la-cochera-site.js'
+import { dosBrosPreviewPath, isDosBrosBusiness, sendDosBrosLanding, sendDosBrosSharePreview } from './dos-bros-site.js'
 import { publicBookingNavigation } from '../services/public-booking-navigation.js'
 import { bookingServiceIcons, httpsBookingEmailUrl, resolveBookingConfirmationAppearance, resolveBookingEmailMedia } from '../services/booking-email-media-service.js'
 import { bookingConfirmationDetailIcons } from '../services/booking-confirmation-email-service.js'
@@ -54,6 +55,8 @@ const landingAssetsDir = join(process.cwd(), 'src', 'assets', 'landing')
 const weexHomePath = join(process.cwd(), 'src', 'assets', 'weex-home', 'index.html')
 
 export async function landingUiRoutes(app: FastifyInstance) {
+  app.get(dosBrosPreviewPath, async (_request, reply) => sendDosBrosSharePreview(reply))
+
   app.get('/landing-assets/:asset', async (request, reply) => {
     const params = request.params as { asset: string }
     const asset = params.asset
@@ -71,6 +74,8 @@ export async function landingUiRoutes(app: FastifyInstance) {
     if (!business.landingEnabled && !modelPreview) return reply.status(404).type('text/html').send(renderNotFound())
 
     if (!modelPreview && isLaCocheraLandingRequest(request.headers.host, request.url.split('?')[0] || '/', business.slug)) return sendLaCocheraLanding(reply, business)
+
+    if (!modelPreview && isDosBrosBusiness(business)) return sendDosBrosLanding(reply, business, '')
 
     return reply.type('text/html').send(renderLanding(business, '', previewLandingTemplate(request), modelPreview))
   })
@@ -126,6 +131,8 @@ export async function landingUiRoutes(app: FastifyInstance) {
     if (!business || (!business.landingEnabled && !modelPreview)) return reply.status(404).type('text/html').send(renderNotFound())
 
     if (!modelPreview && isLaCocheraLandingRequest(request.headers.host, request.url.split('?')[0] || '/', business.slug)) return sendLaCocheraLanding(reply, business)
+
+    if (!modelPreview && isDosBrosBusiness(business)) return sendDosBrosLanding(reply, business, '/' + slug)
 
     return reply.type('text/html').send(renderLanding(business, `/${slug}`, previewLandingTemplate(request), modelPreview))
   })
@@ -2057,6 +2064,19 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               const pending = state.weexAccount
                 ? await getJson(bookingApiUrl('/pending-deposit')).catch(() => null)
                 : null
+              if (${JSON.stringify(!demoPreview && isDosBrosBusiness(business))} && !pending?.deposit) {
+                const requestedServiceId = bookingParameters.get('servicio')
+                const requestedProfessionalId = bookingParameters.get('profesional')
+                const service = (catalog.services || []).find((item) => item.id === requestedServiceId)
+                if (service) {
+                  state.services = [service]
+                  state.service = service
+                }
+                if (requestedProfessionalId && availableProfessionals().some((item) => item.id === requestedProfessionalId)) {
+                  state.professionalPreference = requestedProfessionalId
+                  state.professionalId = requestedProfessionalId
+                }
+              }
               if (!state.weexAccount) {
                 const guest = await getJson(bookingApiUrl('/guest-booking')).catch(() => null)
                 if (guest?.guest) {
@@ -3996,8 +4016,11 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               state.service = state.services[0] || null
               state.estimateOption = null
               state.validationAccepted = false
-              state.professionalId = null
-              state.professionalPreference = null
+              const linkedProfessional = ${JSON.stringify(!demoPreview && isDosBrosBusiness(business))} ? bookingParameters.get('profesional') : null
+              const keepProfessional = linkedProfessional && state.professionalPreference === linkedProfessional &&
+                availableProfessionals().some((item) => item.id === linkedProfessional)
+              state.professionalPreference = keepProfessional ? linkedProfessional : null
+              state.professionalId = state.professionalPreference
               state.professionalOrder = []
               state.slot = null
               state.itinerary = null
